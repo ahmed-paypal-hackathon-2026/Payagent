@@ -1,0 +1,43 @@
+# Render blueprint (Member E) — adjust before production deploy.
+services:
+  - type: web
+    name: payagent-api
+    runtime: docker
+    dockerfilePath: ./services/api/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: PAYAGENT_DB_URL
+        fromDatabase:
+          name: payagent-db
+          property: connectionString
+      - key: PAYAGENT_JWT_SECRET
+        generateValue: true
+      - key: PAYPAL_API_BASE_URL
+        value: https://api-m.sandbox.paypal.com
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+
+  - type: web
+    name: payagent-web
+    runtime: docker
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    plan: starter
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        fromService:
+          type: web
+          name: payagent-api
+          property: host
+      - key: NEXT_PUBLIC_USE_MOCKS
+        value: "false"
+
+databases:
+  - name: payagent-db
+    plan: starter
+    databaseName: payagent
+    user: payagent

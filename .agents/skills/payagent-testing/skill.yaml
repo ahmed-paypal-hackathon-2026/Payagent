@@ -1,0 +1,103 @@
+name: payagent-testing
+version: "1.0.0"
+description: "Testing helper for Payagent — backend tests, frontend tests, fixture validation, release gates, contract parity"
+author: Payagent Team
+repository: https://github.com/mona585/Payagent
+
+commands:
+  - name: backend-test
+    description: "Run all backend tests (unit + integration with H2)"
+    usage: "payagent-testing backend-test"
+    run: |
+      cd services/api && ./mvnw -B test
+
+  - name: backend-package
+    description: "Package backend JAR (skip tests)"
+    usage: "payagent-testing backend-package"
+    run: |
+      cd services/api && ./mvnw -B -DskipTests package
+
+  - name: frontend-test
+    description: "Run frontend typecheck, lint, and build"
+    usage: "payagent-testing frontend-test"
+    run: |
+      cd apps/web && npm ci && npm run typecheck && npm run lint && npm run build
+
+  - name: fixture-test
+    description: "Validate all 10 canonical JSON fixtures"
+    usage: "payagent-testing fixture-test"
+    run: |
+      node scripts/validate-fixtures.mjs
+
+  - name: contract-parity-test
+    description: "Run Java/TypeScript contract parity test"
+    usage: "payagent-testing contract-parity-test"
+    run: |
+      cd services/api && ./mvnw -B test -Dtest=ContractTypeScriptParityTest
+
+  - name: fixture-deserialization-test
+    description: "Test fixture deserialization into Java DTOs"
+    usage: "payagent-testing fixture-deserialization-test"
+    run: |
+      cd services/api && ./mvnw -B test -Dtest=ContractFixtureDeserializationTest
+
+  - name: health-test
+    description: "Run health controller test"
+    usage: "payagent-testing health-test"
+    run: |
+      cd services/api && ./mvnw -B test -Dtest=HealthControllerTest
+
+  - name: release-gates
+    description: "Run release gate tests (TST-01..TST-15) — Member F implements"
+    usage: "payagent-testing release-gates"
+    run: |
+      cd services/api && ./mvnw -B test -Dtest=ReleaseGateSuitePlaceholderTest
+      echo "Note: Release gates are placeholder — Member F implements TST-01..TST-15"
+
+  - name: docker-config-test
+    description: "Validate docker-compose.yml configuration"
+    usage: "payagent-testing docker-config-test"
+    run: |
+      docker compose -f docker-compose.yml config
+
+  - name: full-ci-simulation
+    description: "Simulate full CI pipeline locally (where tooling available)"
+    usage: "payagent-testing full-ci-simulation"
+    run: |
+      echo "=== Backend Tests ==="
+      cd services/api && ./mvnw -B test || exit 1
+      echo "=== Frontend Tests ==="
+      cd ../apps/web && npm ci && npm run typecheck && npm run lint && npm run build || exit 1
+      echo "=== Fixtures ==="
+      cd ../.. && node scripts/validate-fixtures.mjs || exit 1
+      echo "=== Docker Config ==="
+      docker compose -f docker-compose.yml config || exit 1
+      echo "=== Secret Scan ==="
+      gitleaks detect --source . --verbose || exit 1
+      echo "=== AI-Slop Check ==="
+      bash scripts/check-ai-slop-comments.sh || exit 1
+      echo "=== ALL CHECKS PASSED ==="
+
+references:
+  - path: AGENTS.md
+    section: "5. Development Commands (Verified)"
+    description: "All verified commands"
+  - path: .github/workflows/ci.yml
+    description: "GitHub Actions CI pipeline (pinned SHAs)"
+  - path: services/api/src/test/java/com/payagent/bootstrap/
+    description: "Bootstrap tests (health, contracts, fixtures)"
+  - path: services/api/src/test/java/com/payagent/releasegates/
+    description: "Release gate tests TST-01..TST-15 (Member F)"
+  - path: scripts/validate-fixtures.mjs
+    description: "Fixture JSON validation script"
+  - path: scripts/check-ai-slop-comments.sh
+    description: "Placeholder comment detection"
+
+rules:
+  - "Backend unit tests use H2 profile (application-test.yml) — no PostgreSQL required"
+  - "Frontend tests require Node 20 + npm (package-lock.json committed)"
+  - "Fixture validation: exactly 10 JSON files, all valid JSON, aligned with DTOs"
+  - "Contract parity test: enum literals must match 1:1 between Java and TypeScript"
+  - "Release gates TST-01..TST-15 cover: mandate boundary, hash invalidation, prompt injection, webhook forgery, IDOR, duplicate replay"
+  - "CI jobs: backend, frontend, fixtures, docker-compose-config, secret-scan (gitleaks), ai-slop-comments"
+  - "Report actual results: PASS/FAIL/BLOCKED/NOT RUN — never claim success by inference"

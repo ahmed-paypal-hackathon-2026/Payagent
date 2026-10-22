@@ -1,0 +1,155 @@
+---
+description: "Security and PayPal-specific rules for Payagent backend"
+globs: ["services/api/**/paypal/**/*.java", "services/api/**/settlement/**/*.java", "services/api/**/evidence/**/*.java", "services/api/**/disputes/**/*.java", "services/api/**/realtime/**/*.java", "services/api/**/config/*.java"]
+alwaysApply: false
+---
+
+# Payagent — Security & PayPal Rules
+
+**Source of truth:** `AGENTS.md` §4 (Security Invariants). This file adds implementation-specific rules for security-critical paths.
+
+## PayPal Sandbox Integration (Member B Only)
+
+### OAuth2 Token Cache (`PayPalAuthClient`)
+- `POST /v1/oauth2/token` with `client_id` + `client_secret` (from env)
+- Cache token with TTL (expires_in - 60s buffer)
+- Thread-safe singleton or `@Service` with `ReentrantLock`
+- Startup guardrail: `PayPalEnvironmentGuard` already validates base URL contains `sandbox.paypal.com`
+
+### Invoicing v2 (`PayPalInvoiceService`)
+| Operation | Endpoint | Key Details |
+|-----------|----------|-------------|
+| Create draft | `POST /v2/invoicing/invoices` | `detail.note` = `termsHashSha256` + deliverables summary (PayPal ignores note in `/send`) |
+| Send invoice | `POST /v2/invoicing/invoices/{id}/send` | Returns `INV2-...` ID, status `SENT` |
+| Record payment | `POST /v2/invoicing/invoices/{id}/payments` | Called after capture completion |
+| Cancel invoice | `POST /v2/invoicing/invoices/{id}/cancel` | On mutual cancellation |
+
+### Orders v2 & Payments v2 (`PayPalOrderService`)
+| Operation | Endpoint | Key Details |
+|-----------|----------|-------------|
+| Create order | `POST /v2/checkout/orders` | `intent: "AUTHORIZE"`, `PayPal-Request-Id` (idempotency), amount = agreement amount |
+| Authorize order | `POST /v2/checkout/orders/{id}/authorize` | Returns `AUTH-...`, status `CREATED` → store `paypalAuthorizationId` |
+| Capture auth | `POST /v2/payments/authorizations/{authId}/capture` | On buyer accept deliverables → `CAP-...`, status `COMPLETED` |
+| Void auth | `POST /v2/payments/authorizations/{authId}/void` | On mutual cancel or dispute resolution → `VOIDED` |
+
+### Webhook Verification (`PayPalWebhookController`)
+- Endpoint: `POST /api/v1/paypal/webhooks`
+- **Must verify** every webhook via `POST /v1/notifications/verify-webhook-signature`
+  - Headers: `PAYPAL-TRANSMISSION-ID`, `PAYPAL-TRANSMISSION-TIME`, `PAYPAL-TRANSMISSION-SIG`, `PAYPAL-CERT-URL`, `PAYPAL-AUTH-ALGO`
+  - Body: raw JSON
+- Deduplicate: `paypal_events.event_id` PK → ignore duplicates
+- Handle `UNKNOWN` states: trigger reconciliation job, never assume success
+- Respond `200 OK` within 10s (PayPal requirement)
+
+## Security Implementation Rules
+
+### 1. Mandate Privacy (All Members)
+```java
+// CORRECT: DealWorkspaceDTO scoped to authenticated user
+public DealWorkspaceDTO getWorkspace(UUID dealId, PartyRole myRole) {
+    DealWorkspaceDTO dto = ...;
+    // Strip counterparty mandate
+    if (myRole == PartyRole.BUYER) {
+        dto = dto.withMyMandate(buyerMandate).withSellerMandate(null);
+    } else {
+        dto = dto.withMyMandate(sellerMandate).withBuyerMandate(null);
+    }
+    return dto;
+}
+
+// WRONG: Returning both mandates
+return repository.findByDealId(dealId); // Exposes seller mandate to buyer!
+```
+
+### 2. Object-Level Authorization (All Members)
+```java
+// Every service method: check deal membership + role
+public OfferDTO createOffer(UUID dealId, PartyRole proposer, OfferCreateRequest req) {
+    Deal deal = dealRepository.findById(dealId).orElseThrow(NotFound::new);
+    // Verify proposer is deal participant
+    if (proposer == PartyRole.BUYER && !deal.getBuyerUserId().equals(currentUserId)) {
+        throw new ForbiddenException("Not deal buyer");
+    }
+    if (proposer == PartyRole.SELLER && !deal.getSellerUserId().equals(currentUserId)) {
+        throw new ForbiddenException("Not deal seller");
+    }
+    // Validate against proposer's OWN mandate only
+    MandateDTO mandate = mandateService.getActiveMandate(dealId, proposer);
+    if (!utilityCalculator.isMandateCompliant(req.terms(), mandate)) {
+        throw new MandateViolationException("Offer violates your mandate");
+    }
+    ...
+}
+```
+
+### 3. Idempotency (All Mutating Endpoints)
+```java
+@PostMapping("/deals/{id}/offers")
+public OfferDTO createOffer(@PathVariable UUID id,
+                            @RequestHeader("Idempotency-Key") String idempotencyKey,
+                            @Valid @RequestBody OfferCreateRequest req) {
+    return idempotencyService.execute(idempotencyKey, "/api/v1/deals/" + id + "/offers", reqHash, () -> 
+        offerService.create(id, currentUserRole, req)
+    );
+}
+```
+
+### 4. Evidence Security (Member E)
+- Upload: `POST /api/v1/deals/{id}/evidence` (multipart, max 10MB, MIME allowlist)
+- Stream SHA-256 during upload → store hash in DB + file on disk (outside web root)
+- Download: `GET /api/v1/deals/{id}/evidence/{evidenceId}/download?sig={hmac}`
+  - Verify HMAC with `PAYAGENT_EVIDENCE_SIGNING_SECRET`
+  - Verify requester is deal participant
+  - 15-min TTL on signed URL
+
+### 5. Dispute Freeze (Member E + Member B)
+```java
+@PostMapping("/deals/{id}/disputes")
+public DealWorkspaceDTO openDispute(@PathVariable UUID id, @Valid @RequestBody DisputeCreateRequest req) {
+    Deal deal = dealRepository.findById(id).orElseThrow(NotFound::new);
+    // IMMEDIATELY transition to DISPUTED — blocks automated capture
+    deal.setStatus(DealStatus.DISPUTED);
+    deal.setStopReason(NegotiationStopReason.USER_PAUSED);
+    dealRepository.save(deal);
+    // Notify PayPal service to halt any pending capture jobs
+    settlementService.freezeCapture(id);
+    ...
+}
+```
+
+### 6. Agreement Hash Integrity (Member A)
+```java
+// RFC-8785 canonical JSON → SHA-256
+public String computeTermsHash(StructuredTermsDTO terms) {
+    String canonicalJson = RFC8785Canonicalizer.canonicalize(terms); // Deterministic ordering
+    return SHA256.hash(canonicalJson);
+}
+
+// On ANY modification to agreed terms:
+public AgreementSnapshotDTO createNewVersion(UUID dealId, StructuredTermsDTO newTerms) {
+    String newHash = computeTermsHash(newTerms);
+    // Clear prior acceptances
+    return AgreementSnapshotDTO.builder()
+        .version(currentVersion + 1)
+        .canonicalTerms(newTerms)
+        .termsHashSha256(newHash)
+        .buyerAcceptedAt(null)
+        .sellerAcceptedAt(null)
+        .build();
+}
+```
+
+## Testing Requirements
+- TST-01: Mandate cap boundary (1 cent over → reject)
+- TST-02: Agreement v1 hash invalidation on v2 edit
+- TST-03/04: Prompt injection → no mandate leaks, no limit overrides
+- TST-07/08: Forged webhook rejection, idempotency replay
+- TST-10: Cross-account IDOR on deal/mandate/evidence → 403
+
+## Do Not
+- Log PayPal tokens, webhook payloads with signatures, or JWT secrets
+- Store secrets in code, config files, or Docker images
+- Skip webhook signature verification (even in tests — mock the verifier)
+- Allow capture after dispute created
+- Expose `MandateDTO` of counterparty in any API/WebSocket response
+- Use `double`/`float` for money — always `long` (minor units)

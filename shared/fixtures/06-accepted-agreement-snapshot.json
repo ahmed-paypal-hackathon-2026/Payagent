@@ -1,0 +1,21 @@
+{
+  "agreementId": "agr-synth-001",
+  "dealId": "deal-synth-001",
+  "version": 1,
+  "canonicalTerms": {
+    "title": "Landing page redesign for Payagent demo",
+    "deliverables": [
+      "Responsive landing page (Next.js)",
+      "Brand-aligned Tailwind design system",
+      "Contact form with validation"
+    ],
+    "priceMinorUnits": 98000,
+    "currency": "USD",
+    "deliveryDays": 20,
+    "includedRevisions": 2,
+    "acceptanceCriteriaText": "Page matches approved wireframe; Lighthouse performance score >= 85 on mobile."
+  },
+  "termsHashSha256": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "buyerAcceptedAt": "2026-10-22T12:00:00Z",
+  "sellerAcceptedAt": "2026-10-22T12:05:00Z"
+}

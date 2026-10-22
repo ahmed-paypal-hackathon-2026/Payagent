@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364e231fe6 # v4.2.2
+      - uses: actions/setup-java@8c63295a05a8564847d3994dfac03647cf335a47 # v4.4.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Validate Maven wrapper
+        working-directory: services/api
+        run: test -x ./mvnw
+      - name: Backend tests
+        working-directory: services/api
+        run: ./mvnw -B test
+      - name: Backend package
+        working-directory: services/api
+        run: ./mvnw -B -DskipTests package
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364e231fe6
+      - uses: actions/setup-node@39370e3970a6d050cde1bd0e1b4de7f2123a97d5 # v4.1.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Typecheck
+        working-directory: apps/web
+        run: npm run typecheck
+      - name: Build
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+          NEXT_PUBLIC_USE_MOCKS: "true"
+        run: npm run build
+
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364e231fe6
+      - uses: actions/setup-node@39370e3970a6d050cde1bd0e1b4de7f2123a97d5
+        with:
+          node-version: "20"
+      - name: Validate fixture JSON
+        run: node scripts/validate-fixtures.mjs
+
+  docker-compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364e231fe6
+      - name: Validate compose file
+        run: docker compose -f docker-compose.yml config
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364e231fe6
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  ai-slop-comments:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364e231fe6
+      - name: Check placeholder comment patterns
+        run: bash scripts/check-ai-slop-comments.sh

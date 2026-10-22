@@ -1,0 +1,12 @@
+{
+  "evidenceId": "evidence-synth-001",
+  "dealId": "deal-synth-001",
+  "uploaderRole": "SELLER",
+  "filename": "Landing_Page_v1.zip",
+  "mimeType": "application/zip",
+  "sizeBytes": 204800,
+  "sha256Hash": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+  "version": 1,
+  "downloadSignedUrl": "https://api.localhost/api/v1/deals/deal-synth-001/evidence/evidence-synth-001/download?sig=SYNTH-HMAC",
+  "uploadedAt": "2026-10-22T14:00:00Z"
+}

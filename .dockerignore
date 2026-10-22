@@ -1,0 +1,12 @@
+.git
+.github
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/target
+**/data
+docs/_plan_extract.txt
+plan v2.docx
+AI-Toolkit

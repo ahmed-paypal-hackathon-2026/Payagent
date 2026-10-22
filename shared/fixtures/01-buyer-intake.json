@@ -1,0 +1,13 @@
+{
+  "title": "Landing page redesign for Payagent demo",
+  "deliverables": [
+    "Responsive landing page (Next.js)",
+    "Brand-aligned Tailwind design system",
+    "Contact form with validation"
+  ],
+  "priceMinorUnits": 90000,
+  "currency": "USD",
+  "deliveryDays": 14,
+  "includedRevisions": 2,
+  "acceptanceCriteriaText": "Page matches approved wireframe; Lighthouse performance score >= 85 on mobile."
+}

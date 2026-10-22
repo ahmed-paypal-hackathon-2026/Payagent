@@ -1,0 +1,78 @@
+---
+description: "General repository rules for Payagent — applies to all files"
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Payagent — General Repository Rules
+
+**Source of truth:** `AGENTS.md` at repository root. All rules below are derived from it.
+
+## Architecture & Stack
+- **Frontend:** Next.js 14 (App Router) + React 18 + TypeScript 5 + Tailwind 3.4 (`apps/web/`)
+- **Backend:** Spring Boot 3.3 + Java 21 + Maven (`services/api/`)
+- **Database:** PostgreSQL 16 (Docker Compose)
+- **AI:** Spring AI (OpenAI-compatible) — Member C only
+- **PayPal:** Sandbox only — Invoicing v2, Orders v2, Payments v2, Webhooks — Member B only
+
+## Six-Person Ownership (Strict Boundaries)
+| Member | Owns | Must NOT Touch |
+|--------|------|----------------|
+| A | `services/api/src/main/java/com/payagent/common/contracts/**`, `auth/**`, `deals/**`, `mandates/**`, `agreements/**`, `db/migration/**` | `paypal/**`, `ai/**`, `apps/web/**` |
+| B | `services/api/src/main/java/com/payagent/paypal/**`, `settlement/**` | `ai/**`, `apps/web/**`, `mandates/**` (utility math) |
+| C | `services/api/src/main/java/com/payagent/ai/**`, `docs/AI_BENCHMARK.md` | `paypal/**`, `apps/web/**`, DB mutations, mandate decisions |
+| D | `apps/web/**` | Backend domain logic, PayPal credentials, authoritative financial status |
+| E | `LICENSE`, `.gitignore`, `.env.example`, `docker-compose.yml`, `render.yaml`, `.github/workflows/ci.yml`, `evidence/**`, `disputes/**`, `realtime/**` | `paypal/**`, `ai/**` |
+| F | `shared/fixtures/**`, `services/api/src/test/java/com/payagent/releasegates/**`, `README.md`, `docs/SECURITY_THREAT_MODEL.md` | Other members' implementation paths |
+
+## Canonical Contracts (Single Source of Truth)
+- **Java:** `com.payagent.common.contracts` — 7 enums + 7 records
+- **TypeScript:** `apps/web/src/types/contracts.ts` — exact mirror
+- **Parity test:** `ContractTypeScriptParityTest.java` validates enum literal equality
+
+## Security Invariants (Non-Negotiable)
+1. **Mandate privacy:** Never serialize a party's `MandateDTO` to the counterparty.
+2. **Object-level auth:** Every access checked against authenticated deal membership/role.
+3. **No hard-coded secrets:** All from env vars. `.env` never committed.
+4. **PayPal Sandbox only:** `PayPalEnvironmentGuard` fails fast on non-sandbox URLs.
+5. **Webhook verification:** Verify via `/v1/notifications/verify-webhook-signature`, deduplicate `event_id`.
+6. **Idempotency:** Mutating endpoints require `Idempotency-Key` header.
+7. **Money = integer minor units (cents):** `long`/`number`, never float.
+8. **LLM trust boundary:** LLM never gets PayPal creds, never computes authoritative utility, never mutates DB.
+9. **Prompt injection defense:** Counterparty text in `<untrusted_counterparty_data>` XML delimiters.
+10. **Agreement hash integrity:** SHA-256 of RFC-8785 canonical JSON. Modification → new version, new hash, cleared acceptances.
+11. **Dispute freeze:** Creating dispute → `DealStatus=DISPUTED`, blocks automated capture.
+12. **Evidence privacy:** Files outside web root, SHA-256 on upload, 15-min HMAC-signed URLs.
+
+## Development Commands
+```bash
+# Backend (services/api/)
+./mvnw -B test
+./mvnw -B -DskipTests package
+
+# Frontend (apps/web/)
+npm ci
+npm run typecheck
+npm run lint
+npm run build
+
+# Fixtures (repo root)
+node scripts/validate-fixtures.mjs
+
+# Docker (repo root)
+docker compose config
+docker compose up --build -d
+
+# Security
+gitleaks detect --source . --verbose
+bash scripts/check-ai-slop-comments.sh
+```
+
+## Agent Behavior Rules
+- Read `AGENTS.md` before any task.
+- Inspect `git status --short` and target file before editing.
+- Preserve existing work — never overwrite teammate's implementation.
+- No fake implementations for security/financial operations.
+- Report actual verification: PASS/FAIL/BLOCKED/NOT RUN.
+- Never print or commit secrets.
+- Contract changes → update both Java and TypeScript, run parity test.

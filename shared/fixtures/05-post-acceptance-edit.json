@@ -1,0 +1,9 @@
+{
+  "fixturePurpose": "Agreement hash invalidation scenario (TST-02).",
+  "priorAgreementVersion": 1,
+  "editedTermsDelta": {
+    "priceMinorUnits": 98001,
+    "note": "One-cent edit after buyer acceptance must clear buyerAcceptedAt and bump termsHashSha256."
+  },
+  "expectedBehavior": "Member A AgreementService rejects stale hash with HTTP 409."
+}

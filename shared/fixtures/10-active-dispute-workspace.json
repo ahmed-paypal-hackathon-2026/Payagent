@@ -1,0 +1,30 @@
+{
+  "dealId": "deal-synth-001",
+  "status": "DISPUTED",
+  "stopReason": "USER_PAUSED",
+  "buyerEmail": "buyer.demo@example.test",
+  "sellerEmail": "seller.demo@example.test",
+  "myRole": "BUYER",
+  "myMandate": null,
+  "offers": [],
+  "currentAgreement": null,
+  "settlement": {
+    "dealId": "deal-synth-001",
+    "agreementVersion": 1,
+    "invoiceStatus": "SENT",
+    "paypalInvoiceId": "INV2-SYNTH-0001",
+    "paypalInvoiceNumber": "SYNTH-INV-001",
+    "paypalInvoiceViewUrl": "https://www.sandbox.paypal.com/invoice/p/#SYNTH-INV-001",
+    "paymentStatus": "AUTHORIZED",
+    "paypalOrderId": "ORD-SYNTH-0001",
+    "paypalAuthorizationId": "AUTH-SYNTH-0001",
+    "paypalCaptureId": null,
+    "authorizationExpiresAt": "2026-11-20T12:00:00Z",
+    "amountMinorUnits": 98000,
+    "currency": "USD",
+    "lastReconciledAt": "2026-10-22T15:00:00Z"
+  },
+  "evidenceList": [],
+  "disputeStatus": "OPEN",
+  "disputeReason": "Deliverable does not meet acceptance criteria (synthetic dispute fixture)."
+}

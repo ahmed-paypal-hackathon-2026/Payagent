@@ -1,0 +1,87 @@
+---
+description: "Backend-specific rules for Payagent Spring Boot API"
+globs: ["services/api/**/*.java", "services/api/**/*.yml", "services/api/**/*.sql", "services/api/pom.xml", "services/api/mvnw*"]
+alwaysApply: false
+---
+
+# Payagent — Backend Rules (Spring Boot 3.3 + Java 21)
+
+**Source of truth:** `AGENTS.md` §1, §2, §3, §4, §5. This file adds backend-specific guidance.
+
+## Package Ownership
+```
+com.payagent.common.contracts/   → Member A (canonical DTOs/Enums)
+com.payagent.auth/               → Member A (JWT, login, deal guard)
+com.payagent.deals/              → Member A (deal lifecycle, offers)
+com.payagent.mandates/           → Member A (versioned mandates, UtilityCalculator)
+com.payagent.agreements/         → Member A (AgreementService, RFC-8785 hash)
+com.payagent.paypal/             → Member B (OAuth, Invoicing v2, Orders v2, Webhooks)
+com.payagent.settlement/         → Member B (dual-rail settlement flow)
+com.payagent.ai/                 → Member C (IntakeExtractor, NegotiationAgent, PromptSanitizer)
+com.payagent.evidence/           → Member E (SHA-256 storage, signed URLs)
+com.payagent.disputes/           → Member E (dispute freeze, resolution)
+com.payagent.realtime/           → Member E (WebSocket STOMP, cursor replay)
+com.payagent.config/             → Member A/E (SecurityConfig, PayPalEnvironmentGuard)
+com.payagent.web/                → Member A (HealthController, future REST controllers)
+```
+
+## Required Patterns
+
+### 1. REST Controllers
+- Base path: `/api/v1`
+- Mutating endpoints: require `Idempotency-Key` header
+- Return canonical DTOs from `com.payagent.common.contracts`
+- Validate request bodies with `@Valid` + Jakarta validation annotations on records
+- Never expose counterparty's `MandateDTO` in responses
+
+### 2. Security
+- `SecurityConfig`: stateless, JWT-ready, permits `/actuator/health/**`, `/api/v1/health`
+- JWT filter/token provider: Member A implements in `auth/`
+- Object-level authorization: check deal membership + role in service layer
+
+### 3. Database & Flyway
+- Schema: `V1__init.sql` (Member A owns evolution)
+- JPA: `ddl-auto: validate` — Flyway manages schema
+- Test profile (`application-test.yml`): excludes DataSource/JPA/Flyway auto-config
+
+### 4. PayPal Integration (Member B Only)
+- `PayPalEnvironmentGuard` fails fast if base URL ≠ sandbox
+- OAuth token cache with TTL
+- Invoicing v2: `POST /v2/invoicing/invoices` (detail.note = termsHashSha256), `/send`, `/payments`, `/cancel`
+- Orders v2: `intent: AUTHORIZE`, `/authorize`, `/capture`, `/void`
+- Webhooks: verify signature via `POST /v1/notifications/verify-webhook-signature`, deduplicate `event_id` in `paypal_events`
+
+### 5. AI Integration (Member C Only)
+- Spring AI ChatClient via OpenAI-compatible starter
+- `extractDealIntake(rawText)` → `StructuredTermsDTO` (validated by Member A's MandateService)
+- `draftBoundedCounterOffer(context, mandate, offer)` → `ProposedOfferDTO`
+- Counterparty text wrapped in `<untrusted_counterparty_data>...</untrusted_counterparty_data>`
+- Deterministic fallback on LLM timeout (>6s) or schema violation
+- Benchmark: 20 prompts, 100% JSON schema validity, p95 < 5s
+
+### 6. Evidence & Realtime (Member E Only)
+- Evidence: MIME allowlist (.zip/.pdf/.png), max 10MB, streaming SHA-256, storage outside web root, 15-min HMAC-signed download URLs
+- Disputes: `POST /api/v1/deals/{id}/disputes` → `DealStatus=DISPUTED`, blocks capture
+- WebSocket: `/ws/deals/{id}` with JWT header + `?afterSeq=` replay, masks counterparty mandate fields
+
+## Testing
+- Unit tests: JUnit 5 + MockMvc (`@WebMvcTest`, `@ActiveProfiles("test")`)
+- Contract tests: `ContractFixtureDeserializationTest`, `ContractTypeScriptParityTest`
+- Integration tests: require Docker (Postgres) or testcontainers
+- Release gates (Member F): TST-01..TST-15 in `releasegates/` package
+
+## Commands (from `services/api/`)
+```bash
+./mvnw -B test                    # All tests (H2 profile for unit)
+./mvnw -B -DskipTests package     # Package JAR
+./mvnw -B test -Dtest=HealthControllerTest
+./mvnw -B test -Dtest=ContractTypeScriptParityTest
+```
+
+## Do Not
+- Add dependencies without coordinating (esp. Spring AI version compatibility)
+- Hard-code PayPal URLs or credentials
+- Return `MandateDTO` for counterparty in any endpoint
+- Use floating-point for money
+- Skip idempotency keys on mutating endpoints
+- Disable `PayPalEnvironmentGuard`

@@ -1,0 +1,24 @@
+{
+  "offerId": "offer-synth-003",
+  "dealId": "deal-synth-001",
+  "roundNumber": 2,
+  "proposerRole": "SELLER",
+  "generatedByAgent": true,
+  "terms": {
+    "title": "Landing page redesign for Payagent demo",
+    "deliverables": [
+      "Responsive landing page (Next.js)",
+      "Brand-aligned Tailwind design system",
+      "Contact form with validation"
+    ],
+    "priceMinorUnits": 125000,
+    "currency": "USD",
+    "deliveryDays": 18,
+    "includedRevisions": 2,
+    "acceptanceCriteriaText": "Page matches approved wireframe; Lighthouse performance score >= 85 on mobile."
+  },
+  "rationaleSummary": "Synthetic over-budget probe for mandate enforcement tests (TST-01).",
+  "callerUtilityScore": "-1.0000",
+  "mandateCompliant": false,
+  "createdAt": "2026-10-22T10:15:00Z"
+}

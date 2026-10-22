@@ -1,0 +1,58 @@
+name: payagent-contracts
+version: "1.0.0"
+description: "Canonical contract management for Payagent — Java/TypeScript parity, fixture validation, DTO/enum synchronization"
+author: Payagent Team
+repository: https://github.com/mona585/Payagent
+
+# This skill helps agents work with Payagent's canonical contracts
+# It provides commands for validating contract parity, generating TypeScript from Java, and fixture testing
+
+commands:
+  - name: check-parity
+    description: "Run Java/TypeScript contract parity test"
+    usage: "payagent-contracts check-parity"
+    run: |
+      cd services/api && ./mvnw -B test -Dtest=ContractTypeScriptParityTest
+
+  - name: validate-fixtures
+    description: "Validate all 10 canonical JSON fixtures against Java DTOs"
+    usage: "payagent-contracts validate-fixtures"
+    run: |
+      node scripts/validate-fixtures.mjs
+
+  - name: deserialize-fixtures
+    description: "Test fixture deserialization into canonical Java types"
+    usage: "payagent-contracts deserialize-fixtures"
+    run: |
+      cd services/api && ./mvnw -B test -Dtest=ContractFixtureDeserializationTest
+
+  - name: sync-contracts
+    description: "Reminder: Java (Member A) and TypeScript (Member D) must be updated together"
+    usage: "payagent-contracts sync-contracts"
+    run: |
+      echo "Contract sync required:"
+      echo "1. Update Java DTOs/Enums in services/api/src/main/java/com/payagent/common/contracts/"
+      echo "2. Update TypeScript mirror in apps/web/src/types/contracts.ts"
+      echo "3. Run: payagent-contracts check-parity"
+      echo "4. Run: payagent-contracts validate-fixtures"
+
+references:
+  - path: AGENTS.md
+    description: "Complete architecture, ownership, contracts, security rules"
+  - path: services/api/src/main/java/com/payagent/common/contracts/
+    description: "Canonical Java DTOs and Enums (Member A)"
+  - path: apps/web/src/types/contracts.ts
+    description: "TypeScript mirror (Member D)"
+  - path: shared/fixtures/
+    description: "10 canonical JSON fixtures (Member F)"
+  - path: services/api/src/test/java/com/payagent/bootstrap/ContractTypeScriptParityTest.java
+    description: "Parity test implementation"
+  - path: services/api/src/test/java/com/payagent/bootstrap/ContractFixtureDeserializationTest.java
+    description: "Fixture deserialization test"
+
+rules:
+  - "Money is always integer minor units (cents) — long in Java, number in TypeScript"
+  - "Enums must match 1:1 between Java and TypeScript"
+  - "MandateDTO is never exposed to counterparty in REST or WebSocket"
+  - "Agreement hash = SHA-256 of RFC-8785 canonical JSON of canonicalTerms"
+  - "Any contract change requires coordinated PR from Member A and Member D"

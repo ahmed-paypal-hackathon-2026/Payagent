@@ -1,0 +1,98 @@
+---
+description: "Frontend-specific rules for Payagent Next.js 14 Web App"
+globs: ["apps/web/**/*.ts", "apps/web/**/*.tsx", "apps/web/**/*.json", "apps/web/**/*.css", "apps/web/package*.json"]
+alwaysApply: false
+---
+
+# Payagent — Frontend Rules (Next.js 14 + React 18 + TypeScript + Tailwind)
+
+**Source of truth:** `AGENTS.md` §1, §2, §3, §4, §5. This file adds frontend-specific guidance.
+
+## Project Structure
+```
+apps/web/
+├── src/
+│   ├── app/                    # App Router pages
+│   │   ├── deals/              # Deal Room, Mandate Builder, Settlement Panel
+│   │   ├── layout.tsx          # Root layout
+│   │   ├── page.tsx            # Landing page
+│   │   └── globals.css         # Tailwind imports
+│   ├── components/             # Shared UI components
+│   │   ├── NegotiationRoom/    # Side-by-side term diffs, utility gauge, dual signature
+│   │   ├── SettlementPanel/    # Invoice (INV2-...) + Order Authorization (AUTH-...) status cards
+│   │   ├── EvidencePanel/      # File upload, SHA-256 badge, Accept/Dispute controls
+│   │   └── AuditTimeline/      # Immutable WebSocket event replay
+│   ├── lib/
+│   │   ├── api.ts              # Typed API client (fetch wrapper)
+│   │   └── utils.ts            # Helpers
+│   └── types/
+│       └── contracts.ts        # Canonical TypeScript mirror of Java DTOs/Enums (Member D)
+├── public/                     # Static assets
+├── package.json                # Next 14.2.18, React 18, TS 5, Tailwind 3.4.1, ESLint 8
+├── package-lock.json           # Committed lockfile
+├── tsconfig.json               # Strict mode
+├── next.config.js              # Standalone output for Docker
+├── tailwind.config.ts
+└── postcss.config.js
+```
+
+## Canonical Contracts (Member D Owns Mirror)
+- **File:** `apps/web/src/types/contracts.ts`
+- **Must match 1:1** with `com.payagent.common.contracts` (Java)
+- **Parity test:** `ContractTypeScriptParityTest.java` validates enum literals
+- **Run before merging contract changes:** `cd services/api && ./mvnw -B test -Dtest=ContractTypeScriptParityTest`
+
+## API Client (`lib/api.ts`)
+- Typed fetch wrapper using `contracts.ts` types
+- Base URL: `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8080`)
+- Mock mode: `NEXT_PUBLIC_USE_MOCKS=true` → serves `shared/fixtures/` via local JSON
+- Idempotency: Auto-generate `Idempotency-Key` for mutating calls
+- Error handling: Typed error responses, no `any`
+
+## Mock Mode (Default for Development)
+- `NEXT_PUBLIC_USE_MOCKS=true` (set in `.env.example`, Docker Compose)
+- Serves fixtures from `shared/fixtures/` via local JSON imports
+- Enables full UI development without backend
+- **Switch to real backend:** `NEXT_PUBLIC_USE_MOCKS=false` + running API
+
+## UI Requirements (Member D Deliverables)
+1. **Deal Intake & Mandate Builder** — Buyer brief → structured terms → mandate lock
+2. **Negotiation Deal Room** — Split view (Buyer/Seller), red/green term diffs across rounds, utility score meter, dual agreement signature card (SHA-256 hash)
+3. **Settlement Panel** — Distinct Invoice Status (SENT/PAID, INV2-... link) + Order Authorization Status (AUTHORIZED/COMPLETED/VOIDED, AUTH-... ID, 29-day hold notice)
+4. **Evidence Panel** — File upload (max 10MB, MIME allowlist), SHA-256 badge, "Accept & Release Capture" button, "Open Dispute & Freeze Automation" modal
+5. **Audit Timeline** — Immutable WebSocket event replay with cursor (`?afterSeq=`)
+
+## Security Rules (Client-Side)
+- **Never** compute authoritative financial status on client
+- **Never** expose counterparty mandate limits in browser state
+- **Never** store PayPal credentials or JWT in localStorage (use httpOnly cookies or memory)
+- All financial status sourced from backend `SettlementStateDTO`
+- WebSocket: JWT in connection header, not URL
+
+## Styling & Components
+- Tailwind CSS 3.4.x — utility-first, no custom CSS unless necessary
+- shadcn/ui or similar accessible component primitives (if added)
+- Responsive: mobile-first, works side-by-side for dual-window demo
+
+## Commands (from `apps/web/`)
+```bash
+npm ci                          # Install (uses package-lock.json)
+npm run dev                     # Dev server (port 3000)
+npm run typecheck               # tsc --noEmit
+npm run lint                    # next lint
+npm run build                   # Production build (standalone output)
+npm run start                   # Run production build
+```
+
+## Docker (from repo root)
+```bash
+docker compose up --build -d    # Web at http://localhost:3000
+```
+
+## Do Not
+- Modify `contracts.ts` without coordinating with Member A (run parity test)
+- Add runtime dependencies without `npm install --save` + commit lockfile
+- Use `any` type — strict TypeScript
+- Hard-code API URLs — use `NEXT_PUBLIC_API_BASE_URL`
+- Disable `NEXT_PUBLIC_USE_MOCKS` until backend endpoints exist
+- Commit `.next/`, `node_modules/`, or `.env*`

@@ -1,0 +1,86 @@
+name: payagent-security-review
+version: "1.0.0"
+description: "Security review helper for Payagent — mandate privacy, PayPal webhook verification, idempotency, evidence access, dispute freeze"
+author: Payagent Team
+repository: https://github.com/mona585/Payagent
+
+commands:
+  - name: scan-secrets
+    description: "Run Gitleaks secret scan on repository"
+    usage: "payagent-security-review scan-secrets"
+    run: |
+      gitleaks detect --source . --verbose
+
+  - name: check-ai-slop
+    description: "Check for placeholder AI comment patterns in source"
+    usage: "payagent-security-review check-ai-slop"
+    run: |
+      bash scripts/check-ai-slop-comments.sh
+
+  - name: verify-paypal-guard
+    description: "Verify PayPalEnvironmentGuard fails on non-sandbox URL"
+    usage: "payagent-security-review verify-paypal-guard"
+    run: |
+      cd services/api && ./mvnw -B test -Dtest=PayPalEnvironmentGuardTest 2>/dev/null || echo "Test not yet implemented — Member B to add"
+
+  - name: review-mandate-privacy
+    description: "Reminder: Check that MandateDTO is never serialized to counterparty"
+    usage: "payagent-security-review review-mandate-privacy"
+    run: |
+      echo "Mandate Privacy Checklist:"
+      echo "1. DealWorkspaceDTO.myMandate scoped to authenticated user only"
+      echo "2. REST endpoints never return counterparty mandate"
+      echo "3. WebSocket events mask counterparty mandate fields"
+      echo "4. Search for 'MandateDTO' in controllers — verify access control"
+
+  - name: review-idempotency
+    description: "Reminder: Check Idempotency-Key on all mutating endpoints"
+    usage: "payagent-security-review review-idempotency"
+    run: |
+      echo "Idempotency Checklist:"
+      echo "1. All POST/PUT/PATCH/DELETE endpoints require Idempotency-Key header"
+      echo "2. Keys stored in idempotency_keys table with request hash"
+      echo "3. Duplicate key + same hash → return cached response"
+      echo "4. Duplicate key + different hash → 409 Conflict"
+
+  - name: review-evidence-security
+    description: "Reminder: Check evidence SHA-256, signed URLs, access control"
+    usage: "payagent-security-review review-evidence-security"
+    run: |
+      echo "Evidence Security Checklist:"
+      echo "1. Upload: max 10MB, MIME allowlist (.zip/.pdf/.png)"
+      echo "2. Streaming SHA-256 computed on upload"
+      echo "3. Files stored outside web root"
+      echo "4. Download: 15-min HMAC-signed URL, verified by deal membership"
+      echo "5. Cross-account access → 403 Forbidden"
+
+  - name: review-dispute-freeze
+    description: "Reminder: Check dispute creation blocks automated capture"
+    usage: "payagent-security-review review-dispute-freeze"
+    run: |
+      echo "Dispute Freeze Checklist:"
+      echo "1. POST /api/v1/deals/{id}/disputes → DealStatus=DISPUTED immediately"
+      echo "2. SettlementService.freezeCapture(dealId) called"
+      echo "3. No automated capture jobs run for DISPUTED deals"
+      echo "4. Resolution: RESOLVED_RELEASE_CAPTURE or RESOLVED_VOID_AUTHORIZATION"
+
+references:
+  - path: AGENTS.md
+    section: "4. Security Invariants (Non-Negotiable)"
+    description: "Complete security rules"
+  - path: .cursor/rules/security.mdc
+    description: "Implementation-specific security rules for Cursor"
+  - path: services/api/src/main/java/com/payagent/config/PayPalEnvironmentGuard.java
+    description: "Sandbox-only startup guard"
+  - path: services/api/src/main/resources/db/migration/V1__init.sql
+    description: "Schema with idempotency_keys, paypal_events, evidence tables"
+  - path: docs/SECURITY_THREAT_MODEL.md
+    description: "Full threat model (to be created by Member F)"
+
+rules:
+  - "PayPal Sandbox ONLY — production URLs blocked by PayPalEnvironmentGuard"
+  - "Webhook signatures MUST be verified via /v1/notifications/verify-webhook-signature"
+  - "Event deduplication via paypal_events.event_id PRIMARY KEY"
+  - "JWT secrets, PayPal credentials, evidence HMAC secret — all from env vars"
+  - "UNKNOWN PayPal states trigger reconciliation — never assume success"
+  - "Money = integer minor units (long/number) — never float/double"

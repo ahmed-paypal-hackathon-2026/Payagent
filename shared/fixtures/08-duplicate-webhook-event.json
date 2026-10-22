@@ -1,0 +1,15 @@
+{
+  "fixturePurpose": "Webhook idempotency / deduplication (TST-08). IDs are synthetic Sandbox-style labels, not live credentials.",
+  "eventId": "WH-SYNTH-EVENT-001",
+  "eventType": "PAYMENT.AUTHORIZATION.CREATED",
+  "resourceId": "AUTH-SYNTH-0001",
+  "payload": {
+    "id": "WH-SYNTH-EVENT-001",
+    "event_type": "PAYMENT.AUTHORIZATION.CREATED",
+    "resource": {
+      "id": "AUTH-SYNTH-0001",
+      "status": "CREATED"
+    }
+  },
+  "expectedBehavior": "Second delivery with the same event_id must be deduplicated without double state transition."
+}

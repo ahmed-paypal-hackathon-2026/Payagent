@@ -1,0 +1,38 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+apps/web/.env
+apps/web/.env.*
+!apps/web/.env.example
+
+# Dependencies and builds
+node_modules/
+apps/web/.next/
+apps/web/out/
+services/api/target/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Logs and local artifacts
+*.log
+docs/_plan_extract.txt
+
+# Optional: keep plan local (owner may track separately)
+# plan v2.docx
+
+# Evidence storage (local dev)
+/var/payagent/
+payagent-evidence/
+
+# Maven/Gradle stray (do not commit)
+services/gradle/
+services/build.gradle
+services/gradlew*
+services/src/
