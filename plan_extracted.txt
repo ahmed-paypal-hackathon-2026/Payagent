@@ -1,0 +1,1279 @@
+﻿ENGINEERING & EXECUTION PLAN â€” PAYAGENT 
+Autonomous Bilateral Negotiating Agent with PayPal Sandbox Settlement
+Verified Planning Baseline:
+ Thursday, October 22, 2026.
+Official Submission Deadline:
+ Thursday, November 12, 2026 at 12:00 PM PST = 
+22:00 
+Africa/Cairo
+ (EET, UTC+2)
+. 
+(Note: Egypt ends DST on Oct 29, 2026; US ends DST on Nov 1, 2026).
+Hard Internal Submission Freeze:
+ 
+Wednesday, November 11, 2026 at 22:00 
+Africa/Cairo
+ (20 active execution days + 24-hour protected buffer).
+Primary Hackathon Prize Targets:
+ 
+Grand Prizes ($12k / $8k / $5k)
+ + 
+Best Use of Agentic Commerce ($5,000)
+ + 
+Best Use ofPayPal + AI ($5,000)
+.
+1. System Architecture & Definitive PayPal Settlement Flow
+1.1 Component Architecture Diagram
+Code snippet
+graph TB
+    subgraph Client_Tier["Next.js 14 + React 18 + TypeScript SPA (apps/web) â€” Owner: Member D"]
+        BuyerUI["Buyer Workspace\n(Intake, Mandate Lock, Offer Diff, Approval & Dispute)"]
+        SellerUI["Seller Workspace\n(Join Deal, Seller Mandate, Counteroffers, Deliverable Upload)"]
+        AuditUI["Live WebSocket Deal Room & Immutable Audit Timeline"]
+    end
+    subgraph Backend_Tier["Spring Boot 3.3 + Java 21 Modular Monolith (services/api)"]
+        subgraph Domain_Core["Domain, Auth & State Machine â€” Owner: Member A"]
+            AuthSvc["JWT Auth & Object-Level Deal Guard"]
+            MandateSvc["Versioned Mandate & Canonical SHA-256 Agreement Engine"]
+            UtilityMath["Deterministic Multi-Attribute Utility Scorer (BigDecimal)"]
+            StateGuard["Deal & Negotiation State Machine"]
+        end
+        subgraph PayPal_Adapter["PayPal Sandbox Adapter â€” Owner: Member B"]
+            PPOAuth["OAuth2 Token Cache (/v1/oauth2/token)"]
+            PPInvoicing["Invoicing v2 Service\n(/v2/invoicing/invoices + /send + /payments + /cancel)"]
+            PPOrders["Orders & Payments v2 Service\n(/v2/checkout/orders AUTHORIZE + /v2/payments/authorizations CAPTURE/VOID)"]
+            PPWebhooks["Webhook Verifier & Reconciler\n(/v1/notifications/verify-webhook-signature)"]
+        end
+        subgraph AI_Engine["Spring AI Negotiation Engine â€” Owner: Member C"]
+            IntakeExtractor["Structured Deal Intake Extractor"]
+            OfferDrafter["Bounded Counteroffer Proposal Generator"]
+            InjectionGuard["XML Delimiter Sandbox & Output Schema Validator"]
+        end
+        subgraph Evidence_Ops["Evidence, Disputes & Realtime â€” Owner: Member E"]
+            EvidenceSvc["Private Deliverable Store + SHA-256 Hasher + Signed URLs"]
+            WSBroker["Spring WebSocket STOMP Broker + Cursor Replay"]
+        end
+        PG[("PostgreSQL 16 Database\n(users, deals, mandates, offers, agreements,\ninvoices, payments, evidence, disputes,\npaypal_events, audit_events, idempotency_keys)")]
+    end
+    subgraph External_Tier["External Sandbox & Model Runtime"]
+        PPCloud["PayPal Sandbox Cloud\n(api-m.sandbox.paypal.com)"]
+        LLMRuntime["OpenAI-Compatible LLM Endpoint\n(vLLM / Ollama / Managed Fallback)"]
+    end
+    BuyerUI & SellerUI -->|REST + Idempotency-Key| Domain_Core
+    BuyerUI & SellerUI <-->|WSS /ws/deals/{id}| WSBroker
+    Domain_Core --> AI_Engine --> LLMRuntime
+    Domain_Core --> PayPal_Adapter --> PPCloud
+    PPCloud -->|Signed Webhooks| PPWebhooks
+    Domain_Core & PayPal_Adapter & Evidence_Ops --> PG
+1.2 End-to-End Bilateral Negotiation & PayPal Settlement Sequence
+Code snippet
+sequenceDiagram
+    autonumber
+    actor Buyer as Buyer (Account 1)
+    actor Seller as Seller (Account 2)
+    participant Web as Next.js UI (Member D)
+    participant Core as Spring Domain & Math (Member A)
+    participant AI as Spring AI Engine (Member C)
+    participant PP as PayPal Adapter (Member B)
+    participant Sandbox as PayPal Sandbox API
+    Buyer->>Web: 1. Submit natural-language project brief + Lock Buyer Mandate (Max $1,200, Target $900, Min 2 revisions, Due Nov 20)
+    Web->>Core: POST /api/v1/deals + POST /api/v1/deals/{id}/mandates
+    Core->>AI: extractDealIntake(rawText)
+    AI-->>Core: StructuredTermsDTO
+    Seller->>Web: 2. Join via Invite Token + Lock Seller Mandate (Min Floor $850, Target 
+1,150, 1 revision, Due Nov 22)
+        Web->>Core: POST /api/v1/deals/{id}/offers
+        Core->>Core: Validate against Seller Mandate + Compute Buyer Utility U_B(x)
+        Core->>AI: draftBoundedCounterOffer(dealState, buyerMandate, sellerOffer)
+        AI-->>Core: ProposedOfferDTO (
+980 <= 
+980.00", invoice_id="INV2-XXXX")
+    Sandbox-->>PP: 201 {order_id: "ORD-123", status: "CREATED"}
+    Buyer->>Web: 7. Approve PayPal Sandbox Order -> Authorize Hold
+    Web->>PP: POST /api/v1/deals/{id}/settlement/authorize {paypalOrderId: "ORD-123"}
+    PP->>Sandbox: POST /v2/checkout/orders/ORD-123/authorize
+    Sandbox-->>PP: 201 {authorization_id: "AUTH-999", status: "CREATED"}
+    PP->>Core: Transition Payment -> AUTHORIZED, Deal -> IN_PROGRESS
+    Note over Buyer,Sandbox: Deliverable Evidence Upload & Final Capture or Dispute
+    Seller->>Web: 8. Upload Landing_Page_v1.zip
+    Web->>Core: POST /api/v1/deals/{id}/evidence (multipart) -> Compute SHA-256, Transition -> DELIVERABLES_SUBMITTED
+    alt Buyer Accepts Deliverables
+        Buyer->>Web: 9a. Click "Accept Deliverables & Capture Payment"
+        Web->>PP: POST /api/v1/deals/{id}/accept-deliverables
+        PP->>Sandbox: POST /v2/payments/authorizations/AUTH-999/capture
+        Sandbox-->>PP: 201 {capture_id: "CAP-777", status: "COMPLETED"}
+        PP->>Sandbox: POST /v2/invoicing/invoices/INV2-XXXX/payments (Record $980 PayPal payment)
+        PP->>Core: Transition Payment -> COMPLETED, Invoice -> PAID, Deal -> ACCEPTED -> CLOSED
+    else Buyer Opens Dispute
+        Buyer->>Web: 9b. Click "Open Dispute" (reason + evidence)
+        Web->>Core: POST /api/v1/deals/{id}/disputes
+        Core->>Core: Transition Deal -> DISPUTED (Freeze all automated capture actions)
+    end
+2. Deterministic Mathematical Model for Bounded Negotiation
+To eliminate the hand-waving in Section 7.2 of the v1 plan, 
+Member A
+ implements this exact multi-attribute utility calculation in 
+UtilityCalculator.java
+ using 
+BigDecimal
+ (scale 4, 
+RoundingMode.HALF_UP
+).
+Each offer consists of a structured vector 
+, where:
+ is the price in minor currency units (cents, e.g., $98000 = \$980.00$).
+ is delivery time in calendar days from deal creation.
+ is the included revision count.
+ is boolean inclusion of all mandatory scope deliverables (
+ required; if 
+, 
+).
+2.1 Buyer Utility Function 
+Given Buyer Mandate parameters 
+ and weights 
+ (default 
+):
+Hard Veto Check:
+ If 
+ or 
+ or 
+ or 
+, the offer violates the Buyer's Mandate and 
+cannot be auto-accepted or proposed by the Buyer's agent
+ (
+).
+Component Scores (clamped to 
+):
+Total Utility:
+2.2 Seller Utility Function 
+Given Seller Mandate parameters 
+:
+Hard Veto Check:
+ If 
+ or 
+ or 
+, the offer violates the Seller's Mandate (
+).
+Component Scores:
+Convergence Rule:
+ When an offer 
+ satisfies both 
+ (default 
+) and 
+ (default 
+), or when either party clicks 
+"Propose Final Candidate"
+, the negotiation transitions to 
+AGREEMENT_CANDIDATE
+ and locks for dual human signature (
+terms_hash
+).
+3. Canonical Shared Interface Contracts (Commit on Day 1)
+All six teammates code against these exact canonical contracts. 
+Member A
+ owns the Java DTO package (
+com.payagent.common.contracts
+), and 
+Member D
+ mirrors it verbatim in 
+apps/web/src/types/contracts.ts
+.
+3.1 Canonical Enums & State Model (Decoupled Reason vs. Status)
+TypeScript
+// apps/web/src/types/contracts.ts (Mirrors Java enums in com.payagent.common.contracts)
+export type PartyRole = "BUYER" | "SELLER";
+export type NegotiationMode = "ASSISTED" | "AUTONOMOUS_BOUNDED";
+export type DealStatus =
+  | "DRAFT"
+  | "INVITED"
+  | "ACTIVE_NEGOTIATION"
+  | "TERMS_PENDING_ACCEPTANCE"
+  | "AGREED"
+  | "SETTLEMENT_PENDING"
+  | "IN_PROGRESS"
+  | "DELIVERABLES_SUBMITTED"
+  | "ACCEPTED"
+  | "DISPUTED"
+  | "CLOSED"
+  | "CANCELLED";
+export type NegotiationStopReason =
+  | "NONE"
+  | "CONVERGED"
+  | "NO_ZOPA_DETECTED"
+  | "MAX_ROUNDS_REACHED"
+  | "MANDATE_EXPIRED"
+  | "USER_PAUSED"
+  | "POLICY_VIOLATION_BLOCKED";
+export type InvoiceLifecycleStatus =
+  | "NOT_CREATED"
+  | "DRAFT"
+  | "SENT"
+  | "PAID"
+  | "CANCELLED"
+  | "UNKNOWN";
+export type PaymentLifecycleStatus =
+  | "NOT_STARTED"
+  | "ORDER_CREATED"
+  | "AUTHORIZED"
+  | "CAPTURE_PENDING"
+  | "COMPLETED"
+  | "VOIDED"
+  | "DECLINED"
+  | "UNKNOWN";
+export type DisputeStatus =
+  | "NONE"
+  | "OPEN"
+  | "UNDER_PARTIES_REVIEW"
+  | "RESOLVED_RELEASE_CAPTURE"
+  | "RESOLVED_VOID_AUTHORIZATION";
+3.2 Canonical Data Transfer Objects (DTOs)
+TypeScript
+export interface StructuredTermsDTO {
+  title: string;
+  deliverables: string[];           // Ordered list of concrete deliverables
+  priceMinorUnits: number;          // e.g. 98000 for $980.00 USD (NEVER float)
+  currency: string;                 // ISO-4217 e.g. "USD"
+  deliveryDays: number;             // Calendar days from agreement activation
+  includedRevisions: number;        // Integer >= 0
+  acceptanceCriteriaText: string;
+}
+export interface MandateDTO {
+  mandateId: string;
+  dealId: string;
+  partyRole: PartyRole;
+  version: number;
+  currency: string;
+  limitPriceMinorUnits: number;     // Max budget for BUYER; Min floor for SELLER
+  targetPriceMinorUnits: number;
+  limitDeliveryDays: number;        // Max days for BUYER; Min days for SELLER
+  targetDeliveryDays: number;
+  limitRevisions: number;           // Min revisions for BUYER; Max revisions for SELLER
+  targetRevisions: number;
+  mustHaveDeliverables: string[];
+  forbiddenTerms: string[];
+  mode: NegotiationMode;
+  maxRounds: number;
+  expiresAt: string;                // ISO-8601 UTC
+}
+export interface OfferDTO {
+  offerId: string;
+  dealId: string;
+  roundNumber: number;
+  proposerRole: PartyRole;
+  generatedByAgent: boolean;
+  terms: StructuredTermsDTO;
+  rationaleSummary: string;         // AI-generated trade-off explanation (max 500 chars)
+  callerUtilityScore: string;       // BigDecimal serialized e.g. "0.7850"
+  mandateCompliant: boolean;
+  createdAt: string;
+}
+export interface AgreementSnapshotDTO {
+  agreementId: string;
+  dealId: string;
+  version: number;
+  canonicalTerms: StructuredTermsDTO;
+  termsHashSha256: string;          // SHA-256 of RFC-8785 canonical JSON of canonicalTerms
+  buyerAcceptedAt: string | null;
+  sellerAcceptedAt: string | null;
+}
+export interface SettlementStateDTO {
+  dealId: string;
+  agreementVersion: number;
+  invoiceStatus: InvoiceLifecycleStatus;
+  paypalInvoiceId: string | null;
+  paypalInvoiceNumber: string | null;
+  paypalInvoiceViewUrl: string | null;
+  paymentStatus: PaymentLifecycleStatus;
+  paypalOrderId: string | null;
+  paypalAuthorizationId: string | null;
+  paypalCaptureId: string | null;
+  authorizationExpiresAt: string | null;
+  amountMinorUnits: number;
+  currency: string;
+  lastReconciledAt: string | null;
+}
+export interface DeliverableEvidenceDTO {
+  evidenceId: string;
+  dealId: string;
+  uploaderRole: PartyRole;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256Hash: string;
+  version: number;
+  downloadSignedUrl: string;
+  uploadedAt: string;
+}
+export interface DealWorkspaceDTO {
+  dealId: string;
+  status: DealStatus;
+  stopReason: NegotiationStopReason;
+  buyerEmail: string;
+  sellerEmail: string | null;
+  myRole: PartyRole;
+  myMandate: MandateDTO | null;
+  offers: OfferDTO[];
+  currentAgreement: AgreementSnapshotDTO | null;
+  settlement: SettlementStateDTO;
+  evidenceList: DeliverableEvidenceDTO[];
+  disputeStatus: DisputeStatus;
+  disputeReason: string | null;
+}
+3.3 Canonical REST & WebSocket Contract Table
+Method & Path
+Owner
+Request Body / Headers
+Response DTO
+Key Guardrail
+POST /api/v1/auth/login
+Member A
+{email, password}
+{token, userId, email}
+BCrypt password check; issues stateless HS256 JWT.
+POST /api/v1/deals/intake
+Member A & C
+{rawPrompt, currency}
+{dealId, extractedTerms: StructuredTermsDTO, inviteToken}
+Calls Member C's 
+extractDealIntake()
+.
+POST /api/v1/deals/{id}/join
+Member A
+{inviteToken}
+DealWorkspaceDTO
+Verifies caller is not the creator (
+creatorId != sellerId
+).
+POST /api/v1/deals/{id}/mandates
+Member A
+MandateCreateRequest
+ + 
+Idempotency-Key
+MandateDTO
+Never exposed to counterparty in REST or WebSocket payloads!
+POST /api/v1/deals/{id}/offers
+Member A
+{terms: StructuredTermsDTO, message}
+ + 
+Idempotency-Key
+OfferDTO
+Rejects HTTP 
+422
+ if offer violates caller's own active Mandate.
+POST /api/v1/deals/{id}/negotiate-step
+Member A & C
+Idempotency-Key
+OfferDTO
+Invokes Member C's LLM counteroffer generator, validates output against Mandate & 
+UtilityCalculator
+ before saving.
+POST /api/v1/deals/{id}/acceptance
+Member A
+{agreementVersion, termsHashSha256}
+AgreementSnapshotDTO
+Rejects HTTP 
+409 Conflict
+ if 
+termsHashSha256
+ does not match current version.
+POST /api/v1/deals/{id}/settlement/initiate
+Member B
+Idempotency-Key
+SettlementStateDTO
+Requires 
+DealStatus == AGREED
+. Creates + sends PayPal Invoice (
+detail.note
+ contains 
+termsHashSha256
+) and creates PayPal Order (
+intent: AUTHORIZE
+).
+POST /api/v1/deals/{id}/settlement/authorize
+Member B
+{paypalOrderId}
+ + 
+Idempotency-Key
+SettlementStateDTO
+Calls 
+POST /v2/checkout/orders/{id}/authorize
+, stores 
+paypalAuthorizationId
+, transitions Deal to 
+IN_PROGRESS
+.
+POST /api/v1/deals/{id}/evidence
+Member E
+multipart/form-data
+ (
+file
+)
+DeliverableEvidenceDTO
+Only 
+SELLER
+ allowed; max 10 MB; computes 
+SHA-256
+ stream digest; transitions Deal to 
+DELIVERABLES_SUBMITTED
+.
+POST /api/v1/deals/{id}/accept-deliverables
+Member B & A
+{evidenceVersion}
+ + 
+Idempotency-Key
+SettlementStateDTO
+Only 
+BUYER
+ allowed; calls 
+POST /v2/payments/authorizations/{authId}/capture
+ + 
+POST /v2/invoicing/invoices/{invId}/payments
+.
+POST /api/v1/deals/{id}/disputes
+Member E & B
+{reason, resolutionRequest}
+DealWorkspaceDTO
+Immediately transitions Deal to 
+DISPUTED
+ and blocks automated capture.
+POST /api/v1/paypal/webhooks
+Member B
+Raw JSON + 
+PAYPAL-*
+ headers
+200 OK
+Verifies signature via 
+/v1/notifications/verify-webhook-signature
+, deduplicates 
+event_id
+.
+WSS /ws/deals/{id}
+Member E
+JWT Header + 
+?afterSeq={n}
+DealEventEnvelope
+Masks counterparty Mandate fields; replays events with 
+seq > afterSeq
+.
+4. Six-Person Ownership Model & Strict Package Boundaries
+To prevent merge conflicts across your 6-person team, every teammate owns isolated directories and Java packages:
+Plaintext
+payagent/
+â”œâ”€â”€ LICENSE                                         # [Member E] Apache-2.0 License
+â”œâ”€â”€ README.md                                       # [Member F] Setup, Architecture, Demo Guide
+â”œâ”€â”€ docker-compose.yml                              # [Member E] Postgres 16 + API + Web
+â”œâ”€â”€ render.yaml                                     # [Member E] Cloud deployment blueprint
+â”œâ”€â”€ shared/fixtures/                                # [Member F] 10 canonical JSON test fixtures
+â”œâ”€â”€ services/api/src/main/java/com/payagent/
+â”‚   â”œâ”€â”€ common/contracts/                           # [Member A] Canonical Java DTOs & Enums
+â”‚   â”œâ”€â”€ auth/ & deals/ & mandates/ & agreements/    # [Member A] Domain State Machine & UtilityMath
+â”‚   â”œâ”€â”€ paypal/ & settlement/                       # [Member B] EXCLUSIVELY Member B (OAuth, Invoices, Orders, Webhooks)
+â”‚   â”œâ”€â”€ ai/                                         # [Member C] EXCLUSIVELY Member C (Spring AI, Prompts, Sanitizer, Benchmark)
+â”‚   â””â”€â”€ evidence/ & disputes/ & realtime/           # [Member E] EXCLUSIVELY Member E (Storage, SHA-256, WebSockets, Audit)
+â”œâ”€â”€ services/api/src/test/java/com/payagent/        # [Member F] Integration, Security & Release-Gate Tests
+â””â”€â”€ apps/web/src/                                   # [Member D] EXCLUSIVELY Member D (Next.js 14 UI & AG Grid / Diff Views)
+Detailed Work-Allocation Matrix (20-Day Sprint: Oct 22 â€“ Nov 11, 2026)
+Task ID
+Work Package
+Owner
+Owned Paths
+Prereqs
+Concrete Deliverable
+Acceptance Criteria (Pass/Fail)
+Est. Hrs
+WP-A1
+Canonical Java DTOs, Flyway Schema & JWT Auth
+Member A
+common/contracts/*
+, 
+auth/*
+, 
+db/migration/V1__init.sql
+None (Days 1â€“2)
+Merged DTO records, Flyway SQL tables, and JWT login/register endpoints.
+./mvnw test -Dtest=AuthAndSchemaTest
+ passes; Buyer and Seller authenticate independently.
+10h
+WP-A2
+Mandate Versioning, 
+UtilityCalculator
+ & RFC-8785 Agreement Hash
+Member A
+deals/*
+, 
+mandates/*
+, 
+agreements/*
+WP-A1
+Complete bilateral negotiation state machine, 
+BigDecimal
+ utility scorer, and dual-consent hash lock.
+Modifying 1 cent or 1 revision after Buyer accepts invalidates 
+buyerAcceptedAt
+ and generates a new 
+termsHashSha256
+ (
+TST-02
+).
+18h
+WP-B1
+PayPal Sandbox OAuth2 Cache & Invoicing v2 Service
+Member B
+paypal/PayPalAuthClient.java
+, 
+paypal/PayPalInvoiceService.java
+WP-A1
+Live PayPal Sandbox OAuth client + draft invoice creator (
+detail.note
+ containing 
+termsHashSha256
+) + 
+/send
+ + 
+/payments
+.
+Creates & sends a real Sandbox Invoice (
+INV2-...
+) matching 
+AgreementSnapshotDTO
+ to the exact cent (
+PP-G1
+, 
+PP-G2
+).
+14h
+WP-B2
+PayPal Orders v2 (
+AUTHORIZE
+) & Payments v2 (
+CAPTURE
+ / 
+VOID
+) + Webhooks
+Member B
+paypal/PayPalOrderService.java
+, 
+paypal/PayPalWebhookController.java
+, 
+settlement/*
+WP-B1
+Full settlement controller: Order creation (
+intent: AUTHORIZE
+), authorization capture on deliverable acceptance, void on mutual cancel, and webhook signature verification.
+PP-G3
+, 
+PP-G4
+, and 
+PP-G5
+ pass against live 
+api-m.sandbox.paypal.com
+; tampered webhooks return HTTP 
+400
+.
+18h
+WP-C1
+Spring AI Adapter, Structured Intake Extractor & Model Benchmark
+Member C
+ai/IntakeExtractionService.java
+, 
+ai/ModelBenchmarkRunner.java
+WP-A1
+Spring AI service extracting 
+StructuredTermsDTO
+ + reproducible 20-case benchmark script comparing OpenAI-compatible runtime vs. local Ollama/vLLM.
+100% JSON schema validity across 10 sample freelance prompts in under 5s p95 latency.
+14h
+WP-C2
+Bounded Counteroffer Generator & Prompt-Injection Defense
+Member C
+ai/NegotiationAgentService.java
+, 
+ai/PromptSanitizer.java
+WP-C1, WP-A2
+Agent counteroffer generator with 
+<untrusted_counterparty_message>
+ XML sandboxing and deterministic fallback when LLM times out.
+Passes 15 adversarial prompt-injection test cases (
+TST-03
+, 
+TST-04
+) with 0 mandate leaks or limit overrides.
+14h
+WP-D1
+Next.js Deal Workspace, Mandate Builder & Live Term-Diff View
+Member D
+apps/web/src/app/deals/*
+, 
+components/NegotiationRoom/*
+WP-A1
+Split-view or dual-session Buyer/Seller deal room with visual red/green term diffs, utility gauge, and dual agreement hash signature panel.
+Works seamlessly against 
+shared/fixtures/
+ (
+NEXT_PUBLIC_USE_MOCKS=true
+) by Oct 27 and live backend by Nov 1.
+16h
+WP-D2
+PayPal Settlement Panel, Deliverable Upload & Dispute Timeline UI
+Member D
+components/SettlementPanel/*
+, 
+components/EvidencePanel/*
+, 
+components/AuditTimeline/*
+WP-D1
+Distinct Invoice (
+INV2-...
+) and Order Authorization (
+AUTH-...
+) status cards, SHA-256 deliverable uploader, and Accept/Dispute controls.
+Displays real Sandbox IDs, handles 
+UNKNOWN
+ reconciliation states cleanly, and disables double-clicks.
+14h
+WP-E1
+Repo, 
+Apache-2.0
+ License, Docker Compose, CI & Cloud Hosting
+Member E
+LICENSE
+, 
+docker-compose.yml
+, 
+.github/workflows/ci.yml
+, 
+render.yaml
+None (Days 1â€“4)
+One-command 
+docker-compose up --build
+, GitHub Actions CI (
+mvn test
+, 
+tsc
+, 
+gitleaks
+), and live HTTPS/WSS staging deployment.
+Fresh clone starts Postgres + Spring Boot + Next.js in under 3 minutes; 0 secrets in git history.
+14h
+WP-E2
+Private Deliverable Storage (SHA-256), Dispute Freeze & WebSocket Broker
+Member E
+evidence/*
+, 
+disputes/*
+, 
+realtime/*
+WP-A1, WP-E1
+Authenticated file upload/download with HMAC-signed URLs, 
+SHA-256
+ hashing, dispute freeze trigger, and WebSocket STOMP cursor replay.
+Cross-account IDOR test returns 
+403 Forbidden
+; opening a dispute halts capture (
+TST-10
+, 
+TST-11
+).
+14h
+WP-F1
+Canonical Fixtures, Threat-Model Verification & Release Gate Suite
+Member F
+shared/fixtures/*
+, 
+services/api/src/test/java/com/payagent/releasegates/*
+WP-A1
+10 canonical JSON fixtures (Day 2) + automated JUnit 5 / Playwright test suite covering 
+TST-01
+ through 
+TST-15
+.
+All 6 Go/No-Go Release Gates (
+RG-1
+ to 
+RG-6
+) pass by Nov 8.
+16h
+WP-F2
+Root Documentation, 2:40 Demo Video & Devpost Submission
+Member F
+README.md
+, 
+docs/ARCHITECTURE.md
+, YouTube Video, Devpost Form
+WP-F1
+Complete 
+README.md
+, public 1080p YouTube video (2:40 runtime showing Buyer & Seller windows + PayPal Sandbox side-by-side), and Devpost submission.
+Submitted and verified in incognito mode by 
+Nov 11, 2026 at 22:00 Cairo
+.
+12h
+5. Reconciled 20-Day Execution Calendar (
+Africa/Cairo
+ Time)
+Milestone & Dates
+Active Work Packages
+Hard Go/No-Go Gate & Exit Criteria
+M1: Contract Lock & PayPal Smoke Proof
+Oct 22 â€“ Oct 24
+ (Days 1â€“3)
+WP-A1
+ (DTOs/Schema), 
+WP-E1
+ (Docker/CI/License), 
+WP-F1
+ (10 Fixtures), 
+WP-B1
+ (PayPal Sandbox curl proof).
+GATE 1 (Oct 24, 21:00 Cairo):
+ 
+contracts.ts
+ & Java DTOs merged; 
+docker-compose up
+ starts cleanly; Member B proves live Sandbox 
+OAuth
+ + 
+Invoice Create/Send
+ + 
+Order Authorize/Capture
+ via script (
+PP-G1
+â€“
+PP-G3
+).
+M2: Core Domain, AI Extraction & Mock UI
+Oct 25 â€“ Oct 28
+ (Days 4â€“7)
+WP-A2
+ (Mandates, 
+UtilityCalculator
+, Agreement Hash), 
+WP-C1
+ (Intake Extractor + Benchmark), 
+WP-D1
+ (Deal Room UI on fixtures).
+GATE 2 (Oct 28, 21:00 Cairo):
+ Two users can negotiate and lock an identical 
+termsHashSha256
+ via REST API; Spring AI extracts structured terms in under 5s; UI Deal Room works end-to-end on fixtures.
+M3: PayPal Settlement, Bounded Agent & Evidence
+Oct 29 â€“ Nov 02
+ (Days 8â€“12)
+WP-B2
+ (Orders Authorize/Capture/Void + Webhooks), 
+WP-C2
+ (Counteroffer Agent + Injection Guard), 
+WP-E2
+ (SHA-256 Evidence + WebSockets), 
+WP-D2
+ (Settlement UI).
+GATE 3 (Nov 02, 21:00 Cairo):
+ Full backend loop works against live PayPal Sandbox: Mutual Agreement â†’ Invoice Sent (
+INV2-...
+) â†’ Order Authorized (
+AUTH-...
+) â†’ Deliverable Uploaded (
+SHA-256
+) â†’ Buyer Accepts â†’ Capture Completed (
+CAP-...
+) & Invoice marked 
+PAID
+.
+M4: Full-Stack Integration & Feature Freeze
+Nov 03 â€“ Nov 05
+ (Days 13â€“15)
+Member D switches 
+NEXT_PUBLIC_USE_MOCKS=false
+; Member E deploys integrated stack to staging HTTPS/WSS; team fixes integration bugs.
+GATE 4 / FEATURE FREEZE (Nov 05, 21:00 Cairo):
+ Complete two-browser-window demo journey runs live on staging with real PayPal Sandbox IDs. Zero new features permitted after Nov 5.
+M5: Security Verification & Release Gates
+Nov 06 â€“ Nov 08
+ (Days 16â€“18)
+Member F runs 
+TST-01
+ through 
+TST-15
+ (mandate boundary, hash invalidation, prompt injection, webhook forgery, IDOR, duplicate replay).
+GATE 5 (Nov 08, 21:00 Cairo):
+ All 15 tests and 
+RG-1
+ through 
+RG-5
+ pass with zero open critical defects.
+M6: Demo Recording & Early Devpost Submission
+Nov 09 â€“ Nov 11
+ (Days 19â€“21)
+WP-F2
+ (Record 2:40 split-screen Buyer/Seller + PayPal Sandbox video, finalize 
+README.md
+, verify clean clone, submit on Devpost).
+GATE 6 / HARD INTERNAL DEADLINE (Nov 11, 22:00 Cairo):
+ Public repo, root 
+Apache-2.0
+ 
+LICENSE
+, live demo URL, and public YouTube video (< 2:50) submitted on Devpost 24h before official deadline.
+6. Copy-Ready Individual Assignment Sheets (Members A â€“ F)
+(Send each section below directly to the assigned team member.)
+ASSIGNMENT SHEET â€” MEMBER A: BACKEND DOMAIN, MANDATES & STATE MACHINE OWNER
+Mission:
+ Own the Spring Boot domain core, PostgreSQL Flyway schema, JWT authentication, versioned Mandate enforcement, 
+BigDecimal
+ multi-attribute utility calculator (
+UtilityCalculator.java
+), and RFC-8785 canonical 
+SHA-256
+ agreement hashing.
+Owned Paths:
+ 
+services/api/src/main/java/com/payagent/common/contracts/**
+, 
+auth/**
+, 
+deals/**
+, 
+mandates/**
+, 
+agreements/**
+, 
+services/api/src/main/resources/db/migration/**
+.
+Excluded:
+ Do not write PayPal HTTP client calls (
+paypal/**
+ â€” Member B), Spring AI prompts (
+ai/**
+ â€” Member C), or Next.js code (
+apps/web/**
+ â€” Member D).
+Execution Order:
+Days 1â€“2 (
+WP-A1
+):
+ Commit all canonical Java DTO records and Enums matching Section 3.1 & 3.2; write 
+V1__init.sql
+ creating 
+users
+, 
+deals
+, 
+mandates
+, 
+offers
+, 
+agreements
+, 
+invoices
+, 
+payments
+, 
+evidence
+, 
+disputes
+, 
+paypal_events
+, 
+audit_events
+, and 
+idempotency_keys
+; implement 
+/api/v1/auth/*
+.
+Days 3â€“7 (
+WP-A2
+):
+ Implement 
+UtilityCalculator.java
+ using the exact Section 2 
+BigDecimal
+ formulas 
+ and 
+; implement 
+MandateService
+ (ensuring a party's mandate is never serialized to the counterparty); implement 
+AgreementService
+ where any modification to 
+StructuredTermsDTO
+ increments 
+version
+, recomputes 
+termsHashSha256
+, and clears prior 
+buyerAcceptedAt
+ / 
+sellerAcceptedAt
+ timestamps (
+TST-02
+).
+First 3 Actions Today:
+ (1) Initialize the Spring Boot 3.3 + Java 21 project in 
+services/api/
+; (2) Commit 
+com.payagent.common.contracts
+ DTOs and coordinate with Member D so 
+contracts.ts
+ matches 1:1; (3) Write 
+V1__init.sql
+ and unit-test 
+UtilityCalculator
+.
+ASSIGNMENT SHEET â€” MEMBER B: PAYPAL SANDBOX & SETTLEMENT LIFECYCLE OWNER
+Mission:
+ Own all server-to-server interactions with 
+[https://api-m.sandbox.paypal.com](https://api-m.sandbox.paypal.com)
+, implementing the Dual-Rail Settlement Flow (Invoicing v2 commercial record + Orders v2 
+AUTHORIZE
+ hold + Payments v2 
+CAPTURE
+/
+VOID
+ + cryptographic Webhook verification and 
+UNKNOWN
+ state reconciliation).
+Owned Paths:
+ 
+services/api/src/main/java/com/payagent/paypal/**
+, 
+services/api/src/main/java/com/payagent/settlement/**
+.
+Excluded:
+ Do not touch AI prompts, UI components, or negotiation utility math.
+Execution Order:
+Days 1â€“3 (
+PP-G1
+â€“
+PP-G3
+ Smoke Proof):
+ Verify Sandbox Business + Personal accounts; implement 
+PayPalAuthClient
+ (
+POST /v1/oauth2/token
+ with TTL cache and startup guardrail rejecting non-sandbox URLs).
+Days 4â€“7 (
+WP-B1
+ â€” Invoicing v2):
+ Implement 
+PayPalInvoiceService
+: create draft (
+POST /v2/invoicing/invoices
+) placing the accepted 
+termsHashSha256
+ and deliverables summary inside 
+detail.note
+ (never in 
+/send
+, as PayPal ignores notes in 
+/send
+), send invoice (
+/v2/invoicing/invoices/{id}/send
+), record external order capture against invoice (
+/v2/invoicing/invoices/{id}/payments
+), and cancel invoice (
+/cancel
+).
+Days 8â€“12 (
+WP-B2
+ â€” Orders v2 
+AUTHORIZE
+ & Webhooks):
+ Implement 
+PayPalOrderService
+: create order (
+POST /v2/checkout/orders
+ with 
+"intent": "AUTHORIZE"
+, 
+PayPal-Request-Id
+), authorize order (
+/v2/checkout/orders/{id}/authorize
+), capture authorization on buyer deliverable acceptance (
+POST /v2/payments/authorizations/{authId}/capture
+), and void authorization on mutual cancellation (
+/void
+). Implement 
+PayPalWebhookController
+ verifying signatures via 
+POST /v1/notifications/verify-webhook-signature
+ and deduplicating 
+event_id
+ in 
+paypal_events
+.
+First 3 Actions Today:
+ (1) Log into 
+developer.paypal.com
+ and verify your Sandbox Business and Personal accounts; (2) Execute a test 
+curl
+ sequence proving 
+OAuth
+ â†’ 
+Create/Send Invoice
+ â†’ 
+Create/Authorize/Capture Order
+; (3) Implement 
+PayPalAuthClient.java
+.
+ASSIGNMENT SHEET â€” MEMBER C: SPRING AI, NEGOTIATION AGENT & BENCHMARK OWNER
+Mission:
+ Own the 
+com.payagent.ai
+ package, implementing structured deal intake extraction, bounded counteroffer drafting, XML prompt-injection sandboxing, deterministic fallback on model timeout, and the reproducible model benchmark.
+Owned Paths:
+ 
+services/api/src/main/java/com/payagent/ai/**
+, 
+docs/AI_BENCHMARK.md
+.
+Excluded:
+ Never pass PayPal credentials to the LLM, never let the LLM compute utility scores or mutate database rows directly (all LLM outputs return proposed DTOs validated by Member A's 
+MandateService
+ and 
+UtilityCalculator
+).
+Execution Order:
+Days 1â€“5 (
+WP-C1
+):
+ Configure Spring AI 
+ChatClient
+ using the OpenAI-compatible starter (
+spring-ai-openai-spring-boot-starter
+) so it works against both a 24/7 managed endpoint (for zero-downtime judge testing) and a self-hosted 
+vLLM
+/
+Ollama
+ endpoint via 
+SPRING_AI_OPENAI_BASE_URL
+. Implement 
+extractDealIntake(String rawText) -> StructuredTermsDTO
+. Run a 20-prompt benchmark recording schema validity and p95 latency in 
+docs/AI_BENCHMARK.md
+.
+Days 6â€“11 (
+WP-C2
+):
+ Implement 
+draftBoundedCounterOffer(DealContext, MandateDTO, OfferDTO) -> ProposedOfferDTO
+. Wrap all counterparty text inside 
+<untrusted_counterparty_data>...</untrusted_counterparty_data>
+ tags. If the LLM proposes a price above Buyer's 
+limitPriceMinorUnits
+ (or below Seller's floor), clamp or reject the proposal before returning, and provide a deterministic concession-curve fallback if the LLM times out (> 6s).
+First 3 Actions Today:
+ (1) Configure Spring AI in 
+services/api/pom.xml
+; (2) Write 
+IntakeExtractionService.java
+ returning Member A's 
+StructuredTermsDTO
+; (3) Build the 15-case prompt-injection test corpus with Member F.
+ASSIGNMENT SHEET â€” MEMBER D: NEXT.JS WEB WORKSPACE & DIFF EXPERIENCE OWNER
+Mission:
+ Own the 
+apps/web/
+ Next.js 14 + TypeScript + Tailwind application, delivering a crystal-clear split-perspective experience for Buyer and Seller, visual red/green term diffing across negotiation rounds, distinct PayPal Invoice and Payment Authorization status panels, and the deliverable acceptance/dispute interface.
+Owned Paths:
+ 
+apps/web/**
+.
+Excluded:
+ Never compute authoritative financial status on the client or expose counterparty mandate limits in browser state.
+Execution Order:
+Days 1â€“6 (
+WP-D1
+):
+ Commit 
+apps/web/src/types/contracts.ts
+ (Section 3) and build a typed API client with 
+NEXT_PUBLIC_USE_MOCKS=true
+ serving Member F's fixtures in 
+shared/fixtures/
+. Build the Onboarding/Deal Intake screen, Mandate Lock form, and the live 
+Negotiation Deal Room
+ featuring side-by-side red/green term diffs (
+Price
+, 
+Delivery Days
+, 
+Revisions
+, 
+Deliverables
+), utility score meter, and the Dual Agreement Signature card displaying the 
+SHA-256
+ 
+termsHashSha256
+.
+Days 7â€“12 (
+WP-D2
+):
+ Build the 
+Dual-Rail PayPal Settlement Panel
+ (clearly separating 
+Invoice Status: SENT/PAID
+ with official 
+INV2-...
+ link from 
+Order Authorization Status: AUTHORIZED/COMPLETED/VOIDED
+ with 
+AUTH-...
+ ID and 29-day hold notice), the 
+Deliverable Evidence Panel
+ (file upload, SHA-256 badge, "Accept & Release Capture" button, and "Open Dispute & Freeze Automation" modal), and the 
+Immutable Audit Timeline
+.
+First 3 Actions Today:
+ (1) Scaffold 
+apps/web/
+ with Next.js 14 (App Router), TypeScript, and Tailwind CSS; (2) Commit 
+src/types/contracts.ts
+ from Section 3; (3) Wire up the mock fixture switch so you can build the Deal Room UI immediately without waiting on backend endpoints.
+ASSIGNMENT SHEET â€” MEMBER E: INFRASTRUCTURE, DEVOPS, REALTIME & EVIDENCE STORAGE OWNER
+Mission:
+ Own the repository infrastructure, 
+Apache-2.0
+ license, Docker Compose environment, GitHub Actions CI, cloud staging deployment, WebSocket STOMP broker with cursor replay, and private deliverable file storage with SHA-256 hashing.
+Owned Paths:
+ 
+LICENSE
+, 
+docker-compose.yml
+, 
+render.yaml
+, 
+.github/workflows/ci.yml
+, 
+.env.example
+, and 
+services/api/src/main/java/com/payagent/{evidence,disputes,realtime}/**
+.
+Excluded:
+ Do not write PayPal API logic (
+paypal/**
+) or AI prompt logic (
+ai/**
+).
+Execution Order:
+Days 1â€“4 (
+WP-E1
+):
+ Create the GitHub repo, commit root 
+LICENSE
+ (
+Apache-2.0
+), 
+.gitignore
+, 
+.env.example
+, 
+docker-compose.yml
+ (PostgreSQL 16 + Spring Boot API + Next.js Web), and 
+.github/workflows/ci.yml
+ (
+mvn test
+, 
+npm run build
+, 
+gitleaks
+, and AI-slop comment check). Deploy staging HTTPS/WSS service and give Member B the public webhook URL.
+Days 5â€“11 (
+WP-E2
+):
+ Implement 
+EvidenceStorageService.java
+ (validating MIME allowlist 
+.zip/.pdf/.png
+, max 10 MB, computing streaming 
+SHA-256
+ hash, storing files outside the public web root, and issuing 15-minute HMAC-signed download URLs verified by Deal membership). Implement 
+DisputeService.java
+ (halting automated payment capture on dispute creation) and 
+DealWebSocketBroker.java
+ (authenticated 
+/ws/deals/{id}
+ with 
+?afterSeq=
+ event replay).
+First 3 Actions Today:
+ (1) Create the GitHub repository and commit the root 
+Apache-2.0
+ 
+LICENSE
+ and 
+.env.example
+; (2) Commit 
+docker-compose.yml
+ so all 6 members can boot PostgreSQL + API + Web with one command; (3) Set up the GitHub Actions CI workflow with 
+gitleaks
+.
+ASSIGNMENT SHEET â€” MEMBER F: QA, SECURITY VERIFICATION, FIXTURES & SUBMISSION LEAD
+Mission:
+ Own the 10 canonical JSON test fixtures, the automated security and release-gate test suite (
+TST-01
+ through 
+TST-15
+), the root 
+README.md
+ documentation, the under-3-minute YouTube demo video, and the final Devpost submission package. 
+You are the independent quality and security gatekeeper, not the fallback coder for unfinished feature tasks
+.
+Owned Paths:
+ 
+shared/fixtures/**
+, 
+services/api/src/test/java/com/payagent/releasegates/**
+, 
+README.md
+, 
+docs/SECURITY_THREAT_MODEL.md
+.
+Execution Order:
+Days 1â€“2 (
+WP-F1 Part 1
+):
+ Author the 10 canonical JSON fixtures in 
+shared/fixtures/
+ matching Section 3 DTOs (buyer intake, seller counteroffer, over-budget offer, prompt-injection payload, post-acceptance edit, accepted agreement snapshot, sent PayPal invoice + authorized order, duplicate webhook event, deliverable evidence record, and active dispute state).
+Days 6â€“17 (
+WP-F1 Part 2
+):
+ Implement automated JUnit 5 + MockMvc + Sandbox integration tests for 
+TST-01
+ (mandate cap boundary to 1 cent), 
+TST-02
+ (agreement v1 hash invalidation on v2 edit), 
+TST-03
+ & 
+TST-04
+ (prompt injection & unauthorized tool call rejection), 
+TST-07
+ & 
+TST-08
+ (forged webhook rejection & idempotency replay), and 
+TST-10
+ (cross-account IDOR attempt on deal/mandate/evidence returns 
+403
+).
+Days 18â€“20 (
+WP-F2
+):
+ Finalize 
+README.md
+ (with architecture diagrams, clean-clone setup instructions, and explicit AI/Sandbox disclosures), record the 
+2:40 1080p Demo Video
+ following Section 16.1 of the plan (showing Buyer window, Seller window, and the PayPal Sandbox Dashboard side-by-side), upload publicly to YouTube, and submit on Devpost by 
+Wednesday, November 11, 2026 at 22:00 
+Africa/Cairo
+.
+First 3 Actions Today:
+ (1) Review Section 3 DTOs with Member A and Member D; (2) Commit the 10 canonical JSON fixtures in 
+shared/fixtures/
+ so Member D and Member C can test immediately; (3) Set up the GitHub issue board tracking 
+WP-A1
+ through 
+WP-F2
+ and Release Gates 
+RG-1
+ through 
+RG-6
+.
