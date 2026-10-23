@@ -21,7 +21,7 @@ jobs:
       - name: Validate Maven wrapper
         working-directory: services/api
         run: test -x ./mvnw
-        - name: Backend package
+      - name: Backend package
         working-directory: services/api
         run: ./mvnw -B -DskipTests package
       - name: Backend tests
