@@ -1,20 +1,23 @@
 package com.payagent.auth;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
-@ActiveProfiles("test")
 class JwtTokenProviderTest {
 
-    @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @BeforeEach
+    void setUp() {
+        // Test secret: 32+ characters, HS256 compatible
+        String secret = "test-jwt-secret-minimum-32-characters-long-for-testing";
+        long validityMinutes = 60;
+        jwtTokenProvider = new JwtTokenProvider(secret, validityMinutes);
+    }
 
     @Test
     void createAndParseToken_roundTrip() {

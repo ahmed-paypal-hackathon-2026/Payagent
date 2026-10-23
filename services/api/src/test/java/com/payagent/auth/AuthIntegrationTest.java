@@ -1,22 +1,40 @@
 package com.payagent.auth;
 
-import com.payagent.config.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = AuthController.class)
-@Import(SecurityConfig.class)
+/**
+ * Integration tests for authentication endpoints using real H2 database.
+ * <p>
+ * These tests verify the full authentication flow including:
+ * - User registration and persistence
+ * - Duplicate email handling (database unique constraint)
+ * - Password hashing with BCrypt
+ * - Valid login with JWT generation
+ * - Invalid password rejection
+ * - Unknown user rejection (no user enumeration)
+ * - Bean validation (email format, password length)
+ * <p>
+ * Uses {@code @SpringBootTest} with H2 in-memory database configured via
+ * {@code application-test.yml}. Flyway is disabled; schema is created by
+ * Hibernate {@code ddl-auto: create-drop}. These tests do NOT verify Flyway
+ * migrations.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
-class AuthControllerTest {
+@Transactional
+class AuthIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -27,14 +45,14 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "test@example.com",
+                                    "email": "integration@example.com",
                                     "password": "password123"
                                 }
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.token").exists())
                 .andExpect(jsonPath("$.userId").exists())
-                .andExpect(jsonPath("$.email").value("test@example.com"));
+                .andExpect(jsonPath("$.email").value("integration@example.com"));
     }
 
     @Test
@@ -44,18 +62,18 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "duplicate@example.com",
+                                    "email": "duplicate-integration@example.com",
                                     "password": "password123"
                                 }
                                 """))
                 .andExpect(status().isCreated());
 
-        // Second registration with same email
+        // Second registration with same email - should hit unique constraint
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "duplicate@example.com",
+                                    "email": "duplicate-integration@example.com",
                                     "password": "password123"
                                 }
                                 """))
@@ -69,7 +87,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "login@example.com",
+                                    "email": "login-integration@example.com",
                                     "password": "password123"
                                 }
                                 """))
@@ -80,14 +98,14 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "login@example.com",
+                                    "email": "login-integration@example.com",
                                     "password": "password123"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").exists())
                 .andExpect(jsonPath("$.userId").exists())
-                .andExpect(jsonPath("$.email").value("login@example.com"));
+                .andExpect(jsonPath("$.email").value("login-integration@example.com"));
     }
 
     @Test
@@ -97,7 +115,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "wrongpass@example.com",
+                                    "email": "wrongpass-integration@example.com",
                                     "password": "password123"
                                 }
                                 """))
@@ -108,7 +126,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "wrongpass@example.com",
+                                    "email": "wrongpass-integration@example.com",
                                     "password": "wrongpassword"
                                 }
                                 """))
@@ -121,7 +139,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "nonexistent@example.com",
+                                    "email": "nonexistent-integration@example.com",
                                     "password": "password123"
                                 }
                                 """))
@@ -147,7 +165,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                    "email": "test@example.com",
+                                    "email": "valid@example.com",
                                     "password": "short"
                                 }
                                 """))
