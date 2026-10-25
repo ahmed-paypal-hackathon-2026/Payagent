@@ -1,0 +1,8 @@
+title = "Payagent gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake sandbox PayPal order token used in PayPalOrderServiceTest fixtures"
+regexes = ['''ORD-5O190127TN364715T''']
