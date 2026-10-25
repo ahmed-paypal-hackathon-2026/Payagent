@@ -12,6 +12,7 @@ import com.payagent.common.contracts.OfferDTO;
 import com.payagent.common.contracts.StructuredTermsDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -45,6 +46,7 @@ public class NegotiationAgentService {
     private final StructuredTermsValidator termsValidator;
     private final ChatCompletionClient chatClient;
     private final RationaleValidator rationaleValidator;
+    private final int rationaleMaxTokens;
 
     public NegotiationAgentService(
             StrategySelector strategySelector,
@@ -54,7 +56,8 @@ public class NegotiationAgentService {
             OfferConstraintValidator constraintValidator,
             StructuredTermsValidator termsValidator,
             ChatCompletionClient chatClient,
-            RationaleValidator rationaleValidator) {
+            RationaleValidator rationaleValidator,
+            @Value("${payagent.ai.rationale-max-tokens:512}") int rationaleMaxTokens) {
         this.strategySelector = strategySelector;
         this.ruleBasedFallback = ruleBasedFallback;
         this.policyEngine = policyEngine;
@@ -63,6 +66,7 @@ public class NegotiationAgentService {
         this.termsValidator = termsValidator;
         this.chatClient = chatClient;
         this.rationaleValidator = rationaleValidator;
+        this.rationaleMaxTokens = Math.max(128, rationaleMaxTokens);
     }
 
     public ProposedOfferDTO decide(NegotiationContext context) {
@@ -243,7 +247,7 @@ public class NegotiationAgentService {
                     selection.strategy().displayName(),
                     publicPrice == null ? "none" : MoneyParser.formatMajorUnits(publicPrice),
                     context.mandate().currency());
-            String content = chatClient.complete(RATIONALE_SYSTEM_PROMPT, userPrompt, 120);
+            String content = chatClient.complete(RATIONALE_SYSTEM_PROMPT, userPrompt, rationaleMaxTokens);
             String safe = rationaleValidator.sanitizeOrNull(content, context.mandate(), publicPrice);
             if (safe == null) {
                 addWarning(warnings, "LLM_RATIONALE_REJECTED");

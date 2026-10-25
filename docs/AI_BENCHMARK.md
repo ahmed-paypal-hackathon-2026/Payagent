@@ -40,6 +40,20 @@ The repository is pinned to **Spring Boot 3.3.5**. Spring AI 1.0.x starters depe
 
 Instead, `OpenAiCompatibleChatClient` implements the small provider-neutral `ChatCompletionClient` interface with the JDK `HttpClient`. It speaks the OpenAI-compatible chat-completions protocol, needs no extra dependency, uses the existing `payagent.spring-ai.*` configuration keys, and can later be replaced by a Spring AI `ChatClient` implementation without changing intake or negotiation callers. This deviation is intentional and documented here.
 
+### 2.2.1 Live provider configuration
+
+The demo uses **Gemini 3.5 Flash** through Google's OpenAI-compatible endpoint:
+
+```env
+SPRING_AI_OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+SPRING_AI_OPENAI_MODEL=gemini-3.5-flash
+SPRING_AI_OPENAI_API_KEY=<secret>
+```
+
+The key belongs only in the local, git-ignored `.env` or the deployment secret store. It is never written to source, tests, logs, or model artifacts.
+
+Gemini Flash spends reasoning tokens from the same `max_tokens` budget. With a 120-token budget it can return `finish_reason=length` and an empty/partial answer, so `NegotiationAgentService` uses `payagent.ai.rationale-max-tokens` (default **512**). Intake extraction uses 900.
+
 ### 2.3 Why a learned strategy selector instead of "LLM chooses the strategy"
 
 The learned model is tiny (12 standardized features, 5 classes), runs in-process, has no network dependency, and can be benchmarked deterministically. It selects an **archetype**, not a price:
@@ -286,7 +300,7 @@ The synthetic market, the rule-based baseline, and the utility function were des
 Other limitations:
 
 - No `WAIT` action because there is no scheduler/resume path in the current application.
-- No real LLM call is required for tests or the benchmark; LLM behavior is tested with deterministic stubs. A live provider/API key was not configured in this environment.
+- Live Gemini 3.5 Flash was verified for chat, intake, agent rationale, and a 5-turn negotiation on 2026-10-25. Tests and the benchmark do not require a live provider and use deterministic stubs by default; the key is not committed. Gemini's free tier allows 20 requests per day per model, so a combined live run can skip with a clear quota message instead of failing.
 - `mandateCompliant` on `OfferDTO` is not used as a trust signal; the component recomputes compliance itself.
 - The artifact is small by design. A larger learned policy may be justified after real deal data exists.
 
@@ -305,6 +319,12 @@ cd services/api
 # Full test suite (H2 profile; no database needed)
 ./mvnw -B test
 
+# Opt-in live provider test (reads the key from the git-ignored root .env).
+# Four live tests make several calls; on the Gemini free tier (20 requests/day)
+# a 429 skips the live tests with a quota message rather than failing them.
+set -a; . ../../.env; set +a
+PAYAGENT_LIVE_LLM=true ./mvnw -B -Dtest=GeminiLiveIntegrationTest test
+
 # Build the runtime classpath once
 ./mvnw -B -q dependency:build-classpath -Dmdep.outputFile=target/cp.txt
 
@@ -320,7 +340,7 @@ java -cp "target/classes:$(cat target/cp.txt)" \
 
 The generator is deterministic from the seed, so the artifact and metrics are reproducible on the same JDK. The per-run latency figure naturally varies slightly.
 
-The generated report is written to `services/api/target/ai-benchmark/report.json` (build output, not committed). The small model artifact is versioned under `src/main/resources` and must be committed with the code; it is currently untracked because no commit was requested.
+The generated report is written to `services/api/target/ai-benchmark/report.json` (build output, not committed). The small model artifact is versioned under `src/main/resources` and is committed with the code on the Member C branch.
 
 ---
 
@@ -360,7 +380,7 @@ Member A remains responsible for:
 
 | Check | Result |
 |---|---|
-| `./mvnw -B test` with JDK 21 | **PASS** — 84 tests, 0 failures, 0 errors, 1 skipped (existing release-gate placeholder) |
+| `./mvnw -B test` with JDK 21 | **PASS** — 89 tests, 0 failures, 0 errors, 5 skipped (4 opt-in live tests + existing release-gate placeholder) |
 | Contract parity test | **PASS** — unchanged canonical contracts |
 | Model artifact loads from classpath | **PASS** — `AiIntegrationTest` |
 | Hard-constraint boundary tests | **PASS** — buyer ceiling, seller floor, delivery, revisions, required/forbidden terms, expiry |
@@ -371,7 +391,7 @@ Member A remains responsible for:
 | Secrets committed | **None** |
 | Spring AI dependency added / POM changed | **No** (deliberate; see §2.2) |
 | Real PayPal call | **NOT RUN** — out of scope for Member C |
-| Live LLM API call | **NOT RUN** — no key configured; stubbed in tests |
+| Live Gemini chat + intake + rationale + 5-turn negotiation | **PASS individually** — all 4 cases in `GeminiLiveIntegrationTest` have passed (opt-in; key not committed). A combined run on 2026-10-25 hit Gemini's free-tier 20-requests/day limit and correctly skipped rather than failed. |
 | Human negotiation evaluation | **NOT RUN** — no suitable dataset; synthetic benchmark only |
 
 ---

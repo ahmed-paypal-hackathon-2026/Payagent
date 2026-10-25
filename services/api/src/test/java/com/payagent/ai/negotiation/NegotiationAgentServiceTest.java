@@ -138,6 +138,16 @@ class NegotiationAgentServiceTest {
     }
 
     @Test
+    void rationaleUsesTheConfiguredTokenBudget() {
+        StubClient client = new StubClient(
+                "Holding near the target while preserving a compliant scope.");
+        service(client).decide(
+                AiTestFixtures.context(PartyRole.BUYER, AiTestFixtures.buyerMandate(), List.of()),
+                AiTestFixtures.NOW);
+        assertEquals(512, client.lastMaxTokens);
+    }
+
+    @Test
     void draftBoundedCounterOfferUsesSuppliedCounterpartyOffer() {
         NegotiationAgentService service = service(new NoopClient());
         NegotiationContext context = AiTestFixtures.context(
@@ -164,7 +174,8 @@ class NegotiationAgentServiceTest {
                 new OfferConstraintValidator(),
                 new StructuredTermsValidator(),
                 new NoopClient(),
-                new RationaleValidator());
+                new RationaleValidator(),
+                512);
         ProposedOfferDTO decision = service.decide(
                 AiTestFixtures.context(PartyRole.BUYER, AiTestFixtures.buyerMandate(), List.of()),
                 AiTestFixtures.NOW);
@@ -182,7 +193,8 @@ class NegotiationAgentServiceTest {
                 new OfferConstraintValidator(),
                 new StructuredTermsValidator(),
                 client,
-                new RationaleValidator());
+                new RationaleValidator(),
+                512);
     }
 
     private static final class NoopClient implements ChatCompletionClient {
@@ -199,6 +211,7 @@ class NegotiationAgentServiceTest {
 
     private static final class StubClient implements ChatCompletionClient {
         private final String response;
+        private int lastMaxTokens;
 
         private StubClient(String response) {
             this.response = response;
@@ -211,6 +224,7 @@ class NegotiationAgentServiceTest {
 
         @Override
         public String complete(String systemPrompt, String userPrompt, int maxTokens) {
+            this.lastMaxTokens = maxTokens;
             return response;
         }
     }
