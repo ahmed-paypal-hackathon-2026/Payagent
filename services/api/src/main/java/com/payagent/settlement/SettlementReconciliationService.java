@@ -76,9 +76,11 @@ public class SettlementReconciliationService {
 
     private void handleAuthorizationCreated(String authId, JsonNode node) {
         Optional<PaymentEntity> paymentOpt = paymentRepository.findByPaypalAuthorizationId(authId);
-        if (paymentOpt.isEmpty() && node != null && node.has("parent_payment")) {
-            String parent = node.get("parent_payment").asText();
-            paymentOpt = paymentRepository.findByPaypalOrderId(parent);
+        if (paymentOpt.isEmpty()) {
+            String orderId = relatedId(node, "order_id", "parent_payment");
+            if (orderId != null) {
+                paymentOpt = paymentRepository.findByPaypalOrderId(orderId);
+            }
         }
 
         paymentOpt.ifPresent(payment -> {
@@ -100,10 +102,7 @@ public class SettlementReconciliationService {
     }
 
     private void handleCaptureCompleted(String captureId, JsonNode node) {
-        String authId = null;
-        if (node != null && node.has("parent_payment")) {
-            authId = node.get("parent_payment").asText();
-        }
+        String authId = relatedId(node, "authorization_id", "parent_payment");
 
         Optional<PaymentEntity> paymentOpt = authId != null
                 ? paymentRepository.findByPaypalAuthorizationId(authId)
@@ -138,6 +137,20 @@ public class SettlementReconciliationService {
             invoiceRepository.save(invoice);
             auditEventPort.recordEvent(invoice.getDealId(), "WEBHOOK_RECONCILED_INVOICE_CANCELLED", Map.of("invoiceId", invoiceId));
         });
+    }
+
+    private String relatedId(JsonNode node, String relatedIdName, String legacyFieldName) {
+        if (node == null) {
+            return null;
+        }
+        JsonNode relatedIds = node.path("supplementary_data").path("related_ids");
+        if (relatedIds.hasNonNull(relatedIdName)) {
+            return relatedIds.get(relatedIdName).asText();
+        }
+        if (node.hasNonNull(legacyFieldName)) {
+            return node.get(legacyFieldName).asText();
+        }
+        return null;
     }
 
     @Transactional

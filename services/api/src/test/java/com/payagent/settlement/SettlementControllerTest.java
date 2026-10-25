@@ -18,6 +18,7 @@ import com.payagent.common.contracts.SettlementStateDTO;
 import com.payagent.settlement.exception.SettlementConflictException;
 import com.payagent.settlement.exception.SettlementForbiddenException;
 import com.payagent.settlement.exception.SettlementNotFoundException;
+import com.payagent.settlement.persistence.IdempotencyKeyEntity;
 import com.payagent.settlement.persistence.IdempotencyKeyRepository;
 import java.security.Principal;
 import java.util.Optional;
@@ -149,12 +150,51 @@ class SettlementControllerTest {
     }
 
     @Test
+    void authorizeReturns409WhenIdempotencyKeyIsReusedWithDifferentPayload() throws Exception {
+        IdempotencyKeyEntity existing = new IdempotencyKeyEntity(
+                "reused-key",
+                "/api/v1/deals/" + dealId + "/settlement/authorize",
+                dealId,
+                "hash-of-original-payload",
+                200,
+                "{}"
+        );
+        when(idempotencyRepository.findByIdempotencyKeyAndRoute(
+                "reused-key",
+                "/api/v1/deals/" + dealId + "/settlement/authorize"
+        )).thenReturn(Optional.of(existing));
+
+        mockMvc.perform(post("/api/v1/deals/{id}/settlement/authorize", dealId)
+                        .header("Idempotency-Key", "reused-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paypalOrderId\":\"ORD-DIFFERENT\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("IDEMPOTENCY_CONFLICT"));
+    }
+
+    @Test
     void getSettlementReturns404WhenNotFound() throws Exception {
-        when(settlementService.getSettlementState(dealId))
+        when(settlementService.getSettlementState(eq(dealId), any()))
                 .thenThrow(new SettlementNotFoundException("No settlement state exists"));
 
         mockMvc.perform(get("/api/v1/deals/{id}/settlement", dealId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("NOT_FOUND"));
+    }
+
+    @Test
+    void getSettlementReturns403WhenCallerIsNotADealParty() throws Exception {
+        when(settlementService.getSettlementState(eq(dealId), any()))
+                .thenThrow(new SettlementForbiddenException("Caller is not a party to this deal"));
+
+        mockMvc.perform(get("/api/v1/deals/{id}/settlement", dealId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("FORBIDDEN"));
+    }
+
+    @Test
+    void voidSettlementFailsWithoutIdempotencyKey() throws Exception {
+        mockMvc.perform(post("/api/v1/deals/{id}/settlement/void", dealId))
+                .andExpect(status().isBadRequest());
     }
 }

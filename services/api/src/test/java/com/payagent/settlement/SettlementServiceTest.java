@@ -6,10 +6,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.payagent.common.contracts.AgreementSnapshotDTO;
@@ -319,5 +321,39 @@ class SettlementServiceTest {
 
         verify(orderService).voidAuthorization(eq("AUTH-VOID-ME"), anyString());
         verify(invoiceService).cancelInvoice(eq("INV2-CANCEL-ME"), eq("Mutual cancel"), anyString());
+    }
+
+    @Test
+    void getSettlementStateRejectsCallerWhoIsNotADealParty() {
+        doThrow(new SettlementForbiddenException("Caller is not a party to this deal"))
+                .when(dealPort).assertParty(dealId, "intruder@example.com");
+
+        assertThatThrownBy(() -> settlementService.getSettlementState(dealId, "intruder@example.com"))
+                .isInstanceOf(SettlementForbiddenException.class);
+
+        verifyNoInteractions(invoiceRepository, paymentRepository);
+    }
+
+    @Test
+    void getSettlementStateAllowsDealPartyToReadState() {
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-READ",
+                "AUTH-READ",
+                null,
+                null,
+                98000L,
+                "USD"
+        );
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(payment));
+
+        SettlementStateDTO state = settlementService.getSettlementState(dealId, buyerEmail);
+
+        verify(dealPort).assertParty(dealId, buyerEmail);
+        assertThat(state.paymentStatus()).isEqualTo(PaymentLifecycleStatus.AUTHORIZED);
+        assertThat(state.paypalAuthorizationId()).isEqualTo("AUTH-READ");
     }
 }

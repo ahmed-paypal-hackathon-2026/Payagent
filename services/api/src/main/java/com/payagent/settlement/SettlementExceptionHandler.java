@@ -40,7 +40,7 @@ public class SettlementExceptionHandler {
     @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<Map<String, Object>> handleIdempotencyConflict(IdempotencyConflictException ex) {
         log.warn("Idempotency conflict: {}", ex.getMessage());
-        return buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, "IDEMPOTENCY_CONFLICT", ex.getMessage());
+        return buildResponse(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", ex.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

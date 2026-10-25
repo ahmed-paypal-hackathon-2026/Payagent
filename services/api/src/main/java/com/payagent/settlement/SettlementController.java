@@ -68,29 +68,28 @@ public class SettlementController {
     @PostMapping("/void")
     public ResponseEntity<SettlementStateDTO> voidSettlement(
             @PathVariable("id") UUID dealId,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody(required = false) VoidSettlementRequest request,
             Principal principal) {
         String callerEmail = principal != null ? principal.getName() : null;
         String reason = request != null ? request.reason() : "Settlement void requested";
+        String route = "/api/v1/deals/" + dealId + "/settlement/void";
 
-        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            String route = "/api/v1/deals/" + dealId + "/settlement/void";
-            return idempotencyService.execute(
-                    idempotencyKey,
-                    route,
-                    dealId,
-                    request,
-                    SettlementStateDTO.class,
-                    () -> ResponseEntity.ok(settlementService.voidSettlement(dealId, reason, idempotencyKey, callerEmail))
-            );
-        }
-
-        return ResponseEntity.ok(settlementService.voidSettlement(dealId, reason, UUID.randomUUID().toString(), callerEmail));
+        return idempotencyService.execute(
+                idempotencyKey,
+                route,
+                dealId,
+                request,
+                SettlementStateDTO.class,
+                () -> ResponseEntity.ok(settlementService.voidSettlement(dealId, reason, idempotencyKey, callerEmail))
+        );
     }
 
     @GetMapping
-    public ResponseEntity<SettlementStateDTO> getSettlementState(@PathVariable("id") UUID dealId) {
-        return ResponseEntity.ok(settlementService.getSettlementState(dealId));
+    public ResponseEntity<SettlementStateDTO> getSettlementState(
+            @PathVariable("id") UUID dealId,
+            Principal principal) {
+        String callerEmail = principal != null ? principal.getName() : null;
+        return ResponseEntity.ok(settlementService.getSettlementState(dealId, callerEmail));
     }
 }

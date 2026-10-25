@@ -319,7 +319,9 @@ public class SettlementService {
     }
 
     @Transactional(readOnly = true)
-    public SettlementStateDTO getSettlementState(UUID dealId) {
+    public SettlementStateDTO getSettlementState(UUID dealId, String callerEmail) {
+        dealPort.assertParty(dealId, callerEmail);
+
         InvoiceEntity invoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
         PaymentEntity payment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
 

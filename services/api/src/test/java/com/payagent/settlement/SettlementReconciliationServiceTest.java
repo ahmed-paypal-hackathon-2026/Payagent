@@ -93,6 +93,74 @@ class SettlementReconciliationServiceTest {
     }
 
     @Test
+    void captureCompletedUsesSupplementaryDataAuthorizationId() throws Exception {
+        when(eventRepository.existsByEventId("EVT-CAP-1")).thenReturn(false);
+
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-1", "AUTH-SUPP", null, null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-SUPP")).thenReturn(Optional.of(payment));
+
+        boolean processed = reconciliationService.processWebhookEvent(
+                "EVT-CAP-1",
+                "PAYMENT.CAPTURE.COMPLETED",
+                "CAP-SUPP",
+                objectMapper.readTree("""
+                        {
+                          "id": "CAP-SUPP",
+                          "supplementary_data": {
+                            "related_ids": {
+                              "authorization_id": "AUTH-SUPP",
+                              "order_id": "ORD-1"
+                            }
+                          }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(processed).isTrue();
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.COMPLETED);
+        assertThat(payment.getPaypalCaptureId()).isEqualTo("CAP-SUPP");
+        verify(paymentRepository).save(payment);
+    }
+
+    @Test
+    void authorizationCreatedResolvesOrderFromSupplementaryData() throws Exception {
+        when(eventRepository.existsByEventId("EVT-AUTH-1")).thenReturn(false);
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-NEW")).thenReturn(Optional.empty());
+
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.ORDER_CREATED,
+                "ORD-SUPP", null, null, null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalOrderId("ORD-SUPP")).thenReturn(Optional.of(payment));
+
+        boolean processed = reconciliationService.processWebhookEvent(
+                "EVT-AUTH-1",
+                "PAYMENT.AUTHORIZATION.CREATED",
+                "AUTH-NEW",
+                objectMapper.readTree("""
+                        {
+                          "id": "AUTH-NEW",
+                          "supplementary_data": {
+                            "related_ids": {
+                              "order_id": "ORD-SUPP"
+                            }
+                          }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(processed).isTrue();
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.AUTHORIZED);
+        assertThat(payment.getPaypalAuthorizationId()).isEqualTo("AUTH-NEW");
+        verify(paymentRepository).save(payment);
+    }
+
+    @Test
     void invoicePaidUpdatesInvoiceStatus() throws Exception {
         when(eventRepository.existsByEventId("EVT-INV-PAID-1")).thenReturn(false);
 
