@@ -38,6 +38,8 @@ services:
       SPRING_AI_OPENAI_MODEL: ${SPRING_AI_OPENAI_MODEL:-gpt-4o-mini}
       PAYAGENT_EVIDENCE_STORAGE_PATH: /var/payagent/evidence
       PAYAGENT_EVIDENCE_SIGNING_SECRET: ${PAYAGENT_EVIDENCE_SIGNING_SECRET:-local-evidence-signing-secret}
+    volumes:
+      - payagent_evidence_data:/var/payagent/evidence
     ports:
       - "${PAYAGENT_API_PORT:-8080}:8080"
     healthcheck:
@@ -66,3 +68,4 @@ services:
 
 volumes:
   payagent_pg_data:
+  payagent_evidence_data:

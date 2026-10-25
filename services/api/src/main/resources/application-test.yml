@@ -21,3 +21,6 @@ payagent:
     validity-minutes: 60
   paypal:
     base-url: https://api-m.sandbox.paypal.com
+  evidence:
+    storage-path: ./target/test-evidence
+    signing-secret: test-evidence-signing-secret-minimum-32-chars
