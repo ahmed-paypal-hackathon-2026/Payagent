@@ -8,6 +8,7 @@ import java.util.Base64;
 import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,7 @@ public class PayPalAuthClient {
     private volatile String cachedToken;
     private volatile Instant tokenExpiresAt = Instant.EPOCH;
 
+    @Autowired
     public PayPalAuthClient(PayPalProperties properties, RestClient.Builder restClientBuilder) {
         this(properties, restClientBuilder, Clock.systemUTC());
     }
