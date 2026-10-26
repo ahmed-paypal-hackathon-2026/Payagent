@@ -31,4 +31,34 @@ public class AgreementExceptionHandler {
                 "timestamp", Instant.now().toString()
         ));
     }
+
+    @ExceptionHandler(AgreementConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleAgreementConflict(AgreementConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", "CONFLICT",
+                "message", ex.getMessage(),
+                "status", HttpStatus.CONFLICT.value(),
+                "timestamp", Instant.now().toString()
+        ));
+    }
+
+    @ExceptionHandler(AgreementNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleAgreementNotFound(AgreementNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "error", "NOT_FOUND",
+                "message", ex.getMessage(),
+                "status", HttpStatus.NOT_FOUND.value(),
+                "timestamp", Instant.now().toString()
+        ));
+    }
+
+    @ExceptionHandler(AgreementInvalidInputException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidInput(AgreementInvalidInputException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                "error", "BAD_REQUEST",
+                "message", ex.getMessage(),
+                "status", HttpStatus.BAD_REQUEST.value(),
+                "timestamp", Instant.now().toString()
+        ));
+    }
 }
