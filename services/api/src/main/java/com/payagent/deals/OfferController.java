@@ -20,15 +20,19 @@ import java.util.UUID;
 public class OfferController {
 
     private final DealService dealService;
+    private final DealRepository dealRepository;
     private final MandateService mandateService;
     private final UtilityCalculator utilityCalculator;
     private final IdempotencyService idempotencyService;
+    private final OfferRepository offerRepository;
 
-    public OfferController(DealService dealService, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService) {
+    public OfferController(DealService dealService, DealRepository dealRepository, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService, OfferRepository offerRepository) {
         this.dealService = dealService;
+        this.dealRepository = dealRepository;
         this.mandateService = mandateService;
         this.utilityCalculator = utilityCalculator;
         this.idempotencyService = idempotencyService;
+        this.offerRepository = offerRepository;
     }
 
     @PostMapping
@@ -66,7 +70,6 @@ public class OfferController {
                     }
                     // utility veto
                     BigDecimal utility = utilityCalculator.buyerUtility(mandate, req.terms);
-                    // for seller use seller utility if role is seller
                     if (role == PartyRole.SELLER) {
                         utility = utilityCalculator.sellerUtility(mandate, req.terms);
                     }
@@ -74,17 +77,37 @@ public class OfferController {
                         throw new IllegalArgumentException("Offer violates mandate veto");
                     }
                     String utilityScore = utility.setScale(4, java.math.RoundingMode.HALF_UP).toPlainString();
-                    OfferDTO offer = new OfferDTO(
-                            UUID.randomUUID().toString(),
-                            dealId.toString(),
-                            1,
+                    String rationale = req.message() == null ? "" : req.message();
+                    // lock parent deal to serialize round allocation per deal
+                    dealRepository.findByIdForUpdate(dealId)
+                            .orElseThrow(() -> new IllegalArgumentException("Deal not found"));
+                    // determine next round number
+                    Integer maxRound = offerRepository.findMaxRoundNumberByDealId(dealId);
+                    int nextRound = (maxRound == null) ? 1 : maxRound + 1;
+                    UUID offerId = UUID.randomUUID();
+                    Offer offerEntity = new Offer(
+                            offerId,
+                            dealId,
+                            nextRound,
                             role,
                             false,
                             req.terms,
-                            req.message() == null ? "" : req.message(),
+                            rationale,
                             utilityScore,
-                            true,
-                            OffsetDateTime.now().toString()
+                            true
+                    );
+                    Offer saved = offerRepository.save(offerEntity);
+                    OfferDTO offer = new OfferDTO(
+                            saved.getId().toString(),
+                            saved.getDealId().toString(),
+                            saved.getRoundNumber(),
+                            saved.getProposerRole(),
+                            saved.getGeneratedByAgent(),
+                            req.terms,
+                            saved.getRationaleSummary(),
+                            saved.getCallerUtilityScore(),
+                            saved.getMandateCompliant(),
+                            saved.getCreatedAt().toString()
                     );
                     return ResponseEntity.ok(offer);
                 }

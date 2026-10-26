@@ -120,7 +120,7 @@ class NegotiationAgreementBridgeIntegrationTest {
         assertEquals(2, snap2.version());
 
         // Accept old version
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+        com.payagent.agreements.AgreementConflictException ex = assertThrows(com.payagent.agreements.AgreementConflictException.class,
                 () -> agreementService.acceptAgreement(dealId, 1, snap1.termsHashSha256(), "BUYER"));
         assertEquals("Stale version", ex.getMessage());
     }

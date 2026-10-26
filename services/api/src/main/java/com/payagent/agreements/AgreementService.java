@@ -42,22 +42,22 @@ public class AgreementService {
     @Transactional
     public AgreementSnapshotDTO acceptAgreement(UUID dealId, int version, String termsHashSha256, String partyRole) {
         Agreement agreement = repository.findByDealIdAndVersion(dealId, version)
-                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+                .orElseThrow(() -> new AgreementNotFoundException("Agreement not found"));
 
         if (!agreement.getTermsHashSha256().equals(termsHashSha256)) {
-            throw new IllegalArgumentException("Hash mismatch");
+            throw new AgreementConflictException("Hash mismatch");
         }
 
         // Acceptance by the correct party only.
         if (!"BUYER".equals(partyRole) && !"SELLER".equals(partyRole)) {
-            throw new IllegalArgumentException("Invalid party role: " + partyRole);
+            throw new AgreementInvalidInputException("Invalid party role: " + partyRole);
         }
 
         // Stale version check: must be the latest version.
         Agreement latest = repository.findTopByDealIdOrderByVersionDesc(dealId)
-                .orElseThrow(() -> new IllegalArgumentException("No agreement"));
+                .orElseThrow(() -> new AgreementNotFoundException("No agreement"));
         if (!latest.getId().equals(agreement.getId())) {
-            throw new IllegalArgumentException("Stale version");
+            throw new AgreementConflictException("Stale version");
         }
 
         agreement.acceptBy(partyRole);
