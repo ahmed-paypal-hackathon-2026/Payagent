@@ -51,6 +51,8 @@ The local work is on `member-f/release-gates`. Release decision remains **NO-GO*
 - **D/E:** Review and resolve the frontend dependency audit and prove clean-clone deployment.
 - **A/D:** Review fixture/DTO parity through WP-A1/WP-D1; F inspected the contracts locally but has not obtained teammate approval.
 
+**Fresh local clone verification:** the committed branch compiles and reproduces the same release-suite result (60 cases: 48 passed, 3 failed, 9 skipped). Fixture and source-comment checks also pass there. This used a pre-populated Maven cache; it does not certify network bootstrap, Docker startup, PostgreSQL, or staging. A post-commit history scan covered 27 commits with zero findings.
+
 ### Reproduction
 
 From `services/api`, with Java 21:
