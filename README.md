@@ -4,6 +4,26 @@
 
 Hackathon project for a 6-person team. Built with Next.js 14, Spring Boot 3.3, PostgreSQL 16, and PayPal Sandbox.
 
+## Release verification (Member F — October 29, 2026)
+
+This repository is an in-progress Sandbox prototype. The architecture below describes the target system; it is not proof that the complete flow works. Evidence, disputes, realtime, and the Buyer/Seller UI remain integration dependencies.
+
+From `services/api`, with Java 21 installed:
+
+```bash
+./mvnw -B -Dtest='com.payagent.releasegates.*Test' test
+```
+
+By default, the release probes use real policy, agreement, JWT, controller, and reconciliation code with controlled network boundaries. Nine live Sandbox/staging cases are skipped. Opt-in Sandbox cases call PayPal; opt-in staging cases can open a dispute and attempt acceptance on a disposable deal. A default test pass does not certify staging. Failing security regression tests must be resolved by the implementation owner before release; do not disable them to obtain a green build. Detailed findings and TST coverage are in [the security verification ledger](docs/SECURITY_THREAT_MODEL.md#member-f-verification-ledger--2026-10-29).
+
+After the focused probes, run the full backend suite, fixture validation, frontend lint/typecheck/build, clean-clone deployment, and a real Sandbox journey. A unit-test pass alone is insufficient for release approval.
+
+---
+
+## Member F handoff
+
+See the [recording/submission package](docs/member-f/README.md), [security ledger](docs/SECURITY_THREAT_MODEL.md#member-f-verification-ledger--2026-10-29), and [GitHub tracking checklist](https://github.com/mona585/Payagent/issues/29). Current full backend result: **250 passed, 3 failed, 13 skipped (266 total)**. The branch is a QA handoff with known red release gates, not release approval.
+
 ---
 
 ## Architecture Overview
@@ -53,7 +73,7 @@ Hackathon project for a 6-person team. Built with Next.js 14, Spring Boot 3.3, P
 | Frontend | Next.js (App Router) + React + TypeScript + Tailwind CSS | 14.2.x / 18 / 5 / 3.4.x |
 | Backend | Spring Boot + Java + Maven | 3.3.x / 21 / 3.9+ (wrapper) |
 | Database | PostgreSQL | 16 |
-| AI | Spring AI (OpenAI-compatible) | 1.0.x |
+| AI | Deterministic policy + OpenAI-compatible HTTP client | Spring AI replacement planned; not currently a dependency |
 | PayPal | Sandbox only — Invoicing v2, Orders v2, Payments v2, Webhooks | — |
 | Realtime | Spring WebSocket STOMP | — |
 | CI/CD | GitHub Actions (pinned SHAs) | — |
@@ -149,30 +169,55 @@ Payagent/
 
 ## Fresh-Clone Setup
 
+The following commands describe the intended full-stack setup. Docker/Compose startup and staging have not been verified in this environment. Current release tests expose three known defects; a green build is not claimed.
+
 ```bash
-# 1. Clone
 git clone https://github.com/mona585/Payagent.git
 cd Payagent
-
-# 2. Environment (copy and fill in secrets locally)
-copy .env.example .env          # Windows
-# cp .env.example .env          # Linux/macOS
-# Edit .env with your local values (JWT secret, PayPal sandbox creds, etc.)
-
-# 3. Start full stack with Docker (recommended)
+# For Member F's proposed changes after the branch is published:
+git switch member-f/release-gates
+cp .env.example .env
+# Edit .env locally. Do not commit it or paste credentials into issues.
+docker compose config --quiet
 docker compose up --build -d
-# API:  http://localhost:8080/actuator/health
-# Web:  http://localhost:3000
-
-# 4. Or run locally without Docker
-# Backend (from services/api/):
-./mvnw -B test                          # Unit tests (H2 profile)
-# ./mvnw -B spring-boot:run             # Requires local Postgres on localhost:5432
-
-# Frontend (from apps/web/):
-npm ci
-npm run dev                             # Mock mode by default (NEXT_PUBLIC_USE_MOCKS=true)
+curl --fail http://localhost:8080/actuator/health
 ```
+
+On Windows use `copy .env.example .env` instead of `cp`. Install Java 21, Node 20 and Docker Compose v2 first. Fill in the JWT secret, PostgreSQL configuration, Sandbox app credentials and webhook ID, plus an evidence signing secret when E's implementation is available. Copying placeholders does not configure a working payment integration.
+
+Compose reads the root `.env`. Spring Boot started directly from a terminal does **not** automatically load that file; configure environment variables in the launching shell or IDE. The health endpoints do not prove that PayPal credentials, storage, WSS, or the complete user workflow work.
+
+For backend checks without external PostgreSQL, use the H2-backed test profiles selected by the tests:
+
+```bash
+cd services/api
+./mvnw -B test
+# Focus on F-owned probes:
+./mvnw -B -Dtest='com.payagent.releasegates.*Test' test
+```
+
+For the current frontend:
+
+```bash
+cd apps/web  # from the repository root
+npm ci
+npm run lint
+npm run typecheck
+npm run build
+npm run dev
+```
+
+The frontend currently contains a landing page. `NEXT_PUBLIC_USE_MOCKS=true` labels its mode; it does not establish a complete mocked Buyer/Seller journey. Build-time `NEXT_PUBLIC_*` values must be configured correctly before a staging build.
+
+### Optional integration probes
+
+`PayPalSandboxReleaseGateIntegrationTest` is disabled unless `PAYAGENT_LIVE_SANDBOX=true`. It verifies an existing real Sandbox invoice/order and a real recorded webhook; it does not create or capture payments. Configure locally: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYAGENT_TEST_INVOICE_ID`, `PAYAGENT_TEST_ORDER_ID`, `PAYAGENT_TEST_AMOUNT_MINOR`, `PAYAGENT_TEST_CURRENCY`, and `PAYAGENT_WEBHOOK_PROOF_FILE`. The proof file is outside Git and contains `headers` (the five original PayPal signature headers) and `event` (the exact delivered event JSON). Simulator events are insufficient for real signature proof.
+
+`DeployedAppReleaseGateIntegrationTest` is disabled unless `PAYAGENT_LIVE_APP=true`. It requires `PAYAGENT_TESTS_CONFIRM_SANDBOX=true`, a disposable authorized test deal, API URL, participant/outsider JWTs, and actual issued evidence URLs. It can open a dispute and attempt acceptance on that test deal. Keep it disabled against production. A genuine expired link is supplied after its TTL; no 15-minute blocking sleep is used. See the test's required environment names and the security ledger for current blocked cases.
+
+### AI and payment disclosures
+
+The current AI implementation uses deterministic extraction/negotiation and an optional OpenAI-compatible model client. This session's automated probes used controlled model responses; four live model tests were skipped. The PayPal AI Toolkit was used as development guidance, which does not itself prove runtime MCP integration. Payment examples and test identifiers are Sandbox/synthetic; no real-money transaction or full live Sandbox lifecycle has been demonstrated by F. Planned evidence/dispute/realtime features must not be presented as implemented before their owners supply them.
 
 ---
 
@@ -309,7 +354,7 @@ curl -f http://localhost:8080/api/v1/health
 
 ---
 
-## Security Notes
+## Security targets (see verification ledger for actual coverage)
 
 - **Mandate privacy:** Counterparty never sees your `MandateDTO`
 - **Object-level auth:** Every access checked against deal membership + role
@@ -323,17 +368,17 @@ curl -f http://localhost:8080/api/v1/health
 
 ---
 
-## Known Limitations (Scaffolding Status)
+## Known Limitations (October 29, 2026 source inspection)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Backend domain logic (auth, deals, mandates, agreements) | **Scaffolding only** | Contracts, config, health endpoint exist; controllers/services not implemented |
-| PayPal integration (OAuth, Invoicing, Orders, Webhooks) | **Not implemented** | Member B scope |
-| AI engine (intake extraction, counteroffers, sanitizer) | **Not implemented** | Member C scope; Spring AI dependency not in pom.xml |
-| Evidence storage, disputes, WebSocket realtime | **Not implemented** | Member E scope |
-| Frontend UI (Deal Room, Mandate Builder, Settlement Panel, Evidence Panel, Audit Timeline) | **Landing page only** | Member D scope; mock mode works with fixtures |
-| Release gate tests (TST-01..TST-15) | **Placeholder only** | Member F scope |
-| CI pipeline (full) | **Configured, not verified** | GitHub Actions YAML exists; Maven/Docker/Gitleaks blocked locally |
+| Domain/auth/agreement services | Implementation present | JWT/controller identity compatibility and invitation validation have regression probes; see security ledger |
+| PayPal adapter and settlement | Implementation present | Real Sandbox lifecycle and staging remain unverified |
+| AI negotiation | Deterministic policy and optional model client present | Current pom does not include Spring AI; model failure probes are controlled tests |
+| Evidence, dispute endpoints, realtime | Not implemented | Member E dependency; existing settlement dispute check is only partial protection |
+| Buyer/Seller frontend | Landing page only | No complete browser journey to record or test with Playwright yet |
+| Member F release probes | Executable tests added | Result and scope recorded in security ledger; no claim that all 15 TST gates pass |
+| CI, hosting and clean clone | Configuration present | Not certified by source inspection or local unit tests |
 
 ---
 

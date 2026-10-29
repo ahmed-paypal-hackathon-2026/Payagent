@@ -1,7 +1,80 @@
 # Payagent — Security Threat Model
 
 **Source of truth:** `plan v2.docx` (extracted to `docs/_plan_extract.txt`), `AGENTS.md` §4, `.cursor/rules/security.mdc`.  
-**Status:** Documents *planned* security invariants and mitigations. Implementation is in scaffolding phase.
+**Status:** Current verification is in the Member F ledger below. Later planning tables are retained as historical design intent.
+
+---
+
+## Member F verification ledger — 2026-10-29
+
+**Release decision: NO-GO.** The historical planning tables below describe design intent, not current certification.
+
+### Actual execution results
+
+**Full backend:** 266 cases: 250 passed, 3 failed, 13 skipped, 0 errors. **F-owned release suite:** 60 cases: 48 passed, 3 failed, 9 skipped. Four other skips are opt-in Gemini live-model cases. The nine F skips are three real Sandbox and six deployed-app integration probes; they are not passing evidence.
+
+The three reproduced defects are tracked in [BUG-A1](https://github.com/mona585/Payagent/issues/26), [BUG-A2](https://github.com/mona585/Payagent/issues/27), and [BUG-A3](https://github.com/mona585/Payagent/issues/28): valid JWT deal creation returns 422; an invalid invitation replaces the seller; expired JWTs return 403 instead of the required 401. The expiry case denies access and is a response-contract defect.
+
+**Passed:** fixture syntax (10 files), semantic/hash consistency, TypeScript contract parity, source-comment checks, frontend lint/typecheck/production build for the current landing page, and whitespace checks. Gitleaks v8.30.1 scanned 26 Git commits and the F-owned snapshot with **zero findings**. This is scanner evidence, not a guarantee that no secret can exist.
+
+**Dependency audit:** 5 findings (4 high, 1 critical), including Next.js; D/E assessment and upgrades remain outstanding. **Docker/Compose:** blocked locally by missing Compose support. Complete two-browser UI, private evidence/dispute/realtime, real Sandbox lifecycle, automatic UNKNOWN recovery and final public demo remain unverified. A read-only Sandbox connectivity request returned HTTP 403 with the available token; no invoice/order was created, sent, captured or voided.
+
+The local work is on `member-f/release-gates`. Release decision remains **NO-GO** until failed and blocked gates are resolved. The GitHub [tracking checklist](https://github.com/mona585/Payagent/issues/29) contains all twelve work packages and six explicitly proposed gate definitions. No individual teammate approval is inferred.
+
+### Requirement coverage
+
+| Requirement | Implemented F probes | Remaining limit |
+|---|---|---|
+| TST-01 mandate boundary | Exact buyer ceiling/seller floor and one-cent violations; canonical over-budget fixture | Full negotiation HTTP journey remains unverified |
+| TST-02 consent invalidation | Real service and H2 persistence: one-cent edit, new hash/version, old consent cleared, stale acceptance rejected | PostgreSQL/concurrency verification remains |
+| TST-03 injection privacy | 15 malicious output cases plus 15 actual input/sanitizer/extractor cases | Arbitrary live model and WebSocket privacy are not certified |
+| TST-04 unauthorized action | Tool-call-shaped text has no effect on extracted terms; policy/financial decision remains unchanged by model prose | No complete agent-to-payment tool authorization journey exists |
+| TST-05 fallback | Unavailable/timeout exception retains deterministic offer | Actual transport timeout/p95 not measured by this probe |
+| TST-06 invalid output | Missing/negative/currency-invalid terms rejected; tool-shaped JSON does not become a payment action | Live provider schema proof remains |
+| TST-07 webhook forgery | Controller boundary and real Spring security chain reject unsigned/unverified payload before persistence | Real recorded-event signature verifier probe implemented, skipped until configured |
+| TST-08 deduplication | Sequential replay tested with both controlled repositories and real H2 persistence | Concurrent replay/PostgreSQL not certified |
+| TST-09 idempotency | Stored response replay and differing payload rejection | Concurrent/cross-user scope not certified |
+| TST-10 IDOR | Real membership denial, mandate controller 403, real JWT outsider settlement 403; identity/invitation regressions exposed | Evidence/deal deployed probes implemented, skipped while E/D integration is missing |
+| TST-11 dispute freeze | Existing dispute prevents any PayPal capture call | Deployed create-dispute/acceptance probe implemented; missing E/B integration and race proof |
+| TST-12 evidence authorization/hash | Deployed outsider-denial and authorized-download digest probes implemented | Skipped until genuine issued URL and disposable test deal exist |
+| TST-13 expiry | Deployed test requires a genuine issued URL after its 15-minute TTL, expects 403 | Skipped until E implements signed links; no fabricated signature or blocking wait |
+| TST-14 expired JWT | Provider/filter deny expired token; real protected-route integration asserts 401 | Fails: application returns 403; owner A must fix contract |
+| TST-15 UNKNOWN | Explicit reconciliation preserves UNKNOWN until PayPal returns known state | Automatic invocation/scheduling not verified |
+
+### Implementation-owner handoff
+
+- **A:** Resolve [JWT identity](https://github.com/mona585/Payagent/issues/26), [invitation validation](https://github.com/mona585/Payagent/issues/27), and [expired-token status](https://github.com/mona585/Payagent/issues/28). Keep the regression expectations intact and re-run the full suite.
+- **B/E:** Define and prove a common dispute/capture concurrency protocol. Source inspection shows the dispute check occurs before a process-local capture lock. A unit check of an existing dispute does not certify simultaneous requests or multiple instances.
+- **E:** Supply private evidence upload/download, signed expiry, dispute creation and realtime endpoints so staged integration probes can execute.
+- **D:** Supply the complete two-session UI. The current landing page cannot establish the final browser journey or provide actual product-demo footage.
+- **B:** Supply real Sandbox invoice/order IDs, expected amount/currency, and a real delivered webhook proof outside Git. Simulator events are not valid substitutes for signature proof. Confirm automatic UNKNOWN recovery.
+- **D/E:** Review and resolve the frontend dependency audit and prove clean-clone deployment.
+- **A/D:** Review fixture/DTO parity through WP-A1/WP-D1; F inspected the contracts locally but has not obtained teammate approval.
+
+### Reproduction
+
+From `services/api`, with Java 21:
+
+```bash
+./mvnw -B test
+./mvnw -B -Dtest='com.payagent.releasegates.*Test' test
+```
+
+From repo root:
+
+```bash
+node scripts/validate-fixtures.mjs
+bash scripts/check-ai-slop-comments.sh
+git diff --check
+```
+
+Live probes are off by default. See the README's optional integration section and the test classes for required local environment variables. Keep all JWTs, credentials and original webhook proof files out of Git. `DeployedAppReleaseGateIntegrationTest` can open a dispute and attempt acceptance: run only against a disposable confirmed Sandbox deal. Do not interpret skipped tests as completed requirements.
+
+### Recording and submission assets
+
+See [Member F package](member-f/README.md). The included 1920×1080, approximately 2:40 narrated video is a **storyboard rehearsal**, visibly labelled throughout; it is not actual Buyer/Seller/Sandbox footage. Public YouTube upload and Devpost submission remain outstanding. The organizer's event URL/rules were not provided, so dates, categories and eligibility in the supplied plan are not independently verified.
+
+The ten canonical fixtures existed before this work. F validated them and corrected the agreement's canonical SHA-256 hash; synthetic evidence digests and PayPal IDs remain clearly synthetic. The plan mentions RG-1…RG-6 without individually defining them; the tracker uses proposed definitions that require team confirmation.
 
 ---
 
