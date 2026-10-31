@@ -263,7 +263,13 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
         </div>
       </div>
 
-      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="pt-1">
+      <div
+        key={currentUser.id}
+        role="tabpanel"
+        id={`panel-${tab}`}
+        aria-labelledby={`tab-${tab}`}
+        className="pt-1"
+      >
         {tab === "negotiation" ? (
           <NegotiationPanel workspace={workspace} onOpenAgreement={() => setTab("agreement")} />
         ) : null}
