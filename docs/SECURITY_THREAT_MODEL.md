@@ -5,6 +5,21 @@
 
 ---
 
+## October 31 integration review
+
+Latest evidence is in the [integration report](member-f/oct31-review/REVIEW.md). Earlier dated records below are retained as historical results.
+
+- F branch with new probes: **272 cases, 250 passed, 4 failed, 18 skipped, 0 errors**.
+- Isolated combination of F (`d4c3867`), frontend2 (`3c106bd`) and E (`d04e55a`), with new probes: **296 cases, 278 passed, 5 failed, 13 skipped, 0 errors**. No integrated code was merged into the original F branch or main.
+- `EvidenceModuleReleaseGateIntegrationTest` runs when E's module is present and explicitly skips otherwise. Real JWT/H2/filesystem probes verified seller upload/buyer SHA-256-correct download, outsider denial even with a valid URL, buyer upload denial, and rejection of a mathematically valid but expired signature. This advances local TST-10/12/13 coverage; production expiry, PostgreSQL and deployed URLs remain unverified.
+- The evidence replay test fails: identical Idempotency-Key uploads create distinct records/versions ([#33](https://github.com/mona585/Payagent/issues/33)).
+- Real login preflight from the default frontend origin returns 403 ([#34](https://github.com/mona585/Payagent/issues/34)). Browser live-mode integration needs an allowed-origin policy or a same-origin proxy, in addition to the three existing A fixes.
+- Frontend2 production build passed. Browser checks confirmed mock-mode disclosure, unsaved form reset on identity switch, synthetic dual consent, one-cent revision invalidation, and mock dispute freeze. Screenshots and a rerunnable, syntax-checked browser test file are in the report directory. The Playwright CLI file has not been run; actual browser observations used the in-app browser.
+
+**Release remains NO-GO.** None of these mock browser actions constitutes real PayPal proof. Do not disable regression tests to obtain a green check.
+
+---
+
 ## Member F verification ledger — 2026-10-29
 
 **Release decision: NO-GO.** The historical planning tables below describe design intent, not current certification.

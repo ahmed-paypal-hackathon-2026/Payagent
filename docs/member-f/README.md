@@ -17,3 +17,7 @@ The recording script is ready to use once the app supports its scenes. The rehea
 Resolve the three regression failures; complete E/D features; configure and run the nine live F integration probes; prove clean-clone deployment; obtain A/D contract review; record actual buyer/seller/Sandbox footage; verify organizer rules, public links and final submission content. YouTube upload and Devpost submission have not been performed.
 
 F is the independent gatekeeper: missing features remain with their implementation owners. This package does not claim that 90% of the complete release assignment is verified or that all TST requirements pass.
+
+## October 31 update
+
+[Read the combined-branch review and browser evidence](oct31-review/REVIEW.md). New probes advance evidence authorization/hash/expiry coverage and reproduce idempotency and CORS defects. Live integration and final recording remain outstanding.

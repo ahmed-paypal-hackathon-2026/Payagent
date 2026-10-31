@@ -22,7 +22,7 @@ After the focused probes, run the full backend suite, fixture validation, fronte
 
 ## Member F handoff
 
-See the [recording/submission package](docs/member-f/README.md), [security ledger](docs/SECURITY_THREAT_MODEL.md#member-f-verification-ledger--2026-10-29), and [GitHub tracking checklist](https://github.com/mona585/Payagent/issues/29). Current full backend result: **250 passed, 3 failed, 13 skipped (266 total)**. The branch is a QA handoff with known red release gates, not release approval.
+See the [recording/submission package](docs/member-f/README.md), [security ledger](docs/SECURITY_THREAT_MODEL.md#member-f-verification-ledger--2026-10-29), and [GitHub tracking checklist](https://github.com/mona585/Payagent/issues/29). Latest F-branch backend result: **250 passed, 4 failed, 18 skipped (272 total)**. The extra failing gate verifies the default browser/API login preflight; five E-module cases skip until E is integrated. See the [October 31 integration review](docs/member-f/oct31-review/REVIEW.md) for combined-branch results and browser evidence. The branch is a QA handoff with known red release gates, not release approval.
 
 ---
 
