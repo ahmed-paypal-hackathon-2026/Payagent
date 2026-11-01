@@ -67,7 +67,11 @@ class DealIdempotencyTest {
         UUID buyer = UUID.randomUUID();
         UUID seller = UUID.randomUUID();
         UUID dealId = UUID.randomUUID();
-        dealRepository.save(new Deal(dealId, buyer, null, com.payagent.common.contracts.DealStatus.DRAFT));
+        Deal deal = new Deal(dealId, buyer, null, com.payagent.common.contracts.DealStatus.DRAFT);
+        String token = "x";
+        String hash = com.payagent.agreements.Sha256Hasher.hash(token.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        deal.setInviteTokenHash(hash);
+        dealRepository.save(deal);
 
         String key = "deal-join-idemp";
         String url = "/api/v1/deals/" + dealId + "/join";

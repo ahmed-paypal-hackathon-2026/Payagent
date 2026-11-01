@@ -1,10 +1,12 @@
 package com.payagent.deals;
 
+import com.payagent.agreements.Sha256Hasher;
 import com.payagent.common.contracts.NegotiationStopReason;
 import com.payagent.common.contracts.PartyRole;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @Service
@@ -50,6 +52,47 @@ public class DealService {
     public Deal createDeal(UUID buyerUserId, UUID sellerUserId) {
         Deal deal = new Deal(java.util.UUID.randomUUID(), buyerUserId, sellerUserId,
                 com.payagent.common.contracts.DealStatus.DRAFT);
+        return repository.save(deal);
+    }
+
+    @Transactional
+    public Deal createDealWithInvite(UUID buyerUserId, String inviteToken) {
+        if (buyerUserId == null) {
+            throw new IllegalArgumentException("Buyer user id is required");
+        }
+        if (inviteToken == null || inviteToken.isBlank()) {
+            throw new IllegalArgumentException("Invite token is required");
+        }
+        String hash = Sha256Hasher.hash(inviteToken.getBytes(StandardCharsets.UTF_8));
+        Deal deal = new Deal(java.util.UUID.randomUUID(), buyerUserId, null,
+                com.payagent.common.contracts.DealStatus.INVITED);
+        deal.setInviteTokenHash(hash);
+        return repository.save(deal);
+    }
+
+    @Transactional
+    public Deal joinDeal(UUID dealId, UUID userId, String inviteToken) {
+        if (inviteToken == null || inviteToken.isBlank()) {
+            throw new IllegalArgumentException("Invite token is required");
+        }
+        Deal deal = repository.findByIdForUpdate(dealId)
+                .orElseThrow(() -> new IllegalArgumentException("Deal not found: " + dealId));
+        if (userId.equals(deal.getBuyerUserId())) {
+            throw new SecurityException("Creator cannot join as seller");
+        }
+        String tokenHash = Sha256Hasher.hash(inviteToken.getBytes(StandardCharsets.UTF_8));
+        String storedHash = deal.getInviteTokenHash();
+        if (storedHash == null || !storedHash.equalsIgnoreCase(tokenHash)) {
+            throw new IllegalArgumentException("Invalid invitation token");
+        }
+        if (deal.getSellerUserId() != null) {
+            if (!deal.getSellerUserId().equals(userId)) {
+                throw new IllegalStateException("Seller already assigned and cannot be replaced");
+            }
+            // Idempotent: seller already assigned to same user
+            return deal;
+        }
+        deal.setSellerUserId(userId);
         return repository.save(deal);
     }
 
