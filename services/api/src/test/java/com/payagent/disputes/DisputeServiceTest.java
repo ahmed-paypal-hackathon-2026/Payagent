@@ -46,11 +46,22 @@ class DisputeServiceTest {
     @MockBean
     private SettlementService settlementService;
 
+    @Autowired
+    private com.payagent.auth.UserRepository userRepository;
+
     private DisputeService disputeService;
+    private UUID testBuyerId;
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS deals (id UUID PRIMARY KEY, buyer_user_id UUID, seller_user_id UUID, status VARCHAR(64), stop_reason VARCHAR(64), created_at TIMESTAMP, updated_at TIMESTAMP)");
+        com.payagent.auth.User user = userRepository.save(new com.payagent.auth.User(
+                UUID.randomUUID(),
+                "buyer-" + UUID.randomUUID() + "@test.local",
+                "hash",
+                java.time.OffsetDateTime.now()
+        ));
+        testBuyerId = user.getId();
+
         disputeService = new DisputeService(
                 disputeRepository,
                 dealPort,
@@ -66,7 +77,7 @@ class DisputeServiceTest {
         when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.DELIVERABLES_SUBMITTED);
 
         // Insert deal in deals table so jdbcTemplate update succeeds
-        jdbcTemplate.update("INSERT INTO deals (id, status, stop_reason, created_at, updated_at) VALUES (?, 'DELIVERABLES_SUBMITTED', 'NONE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", dealId);
+        jdbcTemplate.update("INSERT INTO deals (id, buyer_user_id, status, stop_reason, created_at, updated_at) VALUES (?, ?, 'DELIVERABLES_SUBMITTED', 'NONE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", dealId, testBuyerId);
 
         CreateDisputeRequest request = new CreateDisputeRequest(
                 "Deliverable does not meet requirements",
@@ -109,7 +120,7 @@ class DisputeServiceTest {
         String callerEmail = "buyer@test.local";
         when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.IN_PROGRESS);
 
-        jdbcTemplate.update("INSERT INTO deals (id, status, created_at, updated_at) VALUES (?, 'IN_PROGRESS', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", dealId);
+        jdbcTemplate.update("INSERT INTO deals (id, buyer_user_id, status, stop_reason, created_at, updated_at) VALUES (?, ?, 'IN_PROGRESS', 'NONE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", dealId, testBuyerId);
 
         DisputeDTO opened = disputeService.createDispute(
                 dealId,
@@ -138,7 +149,7 @@ class DisputeServiceTest {
         String callerEmail = "buyer@test.local";
         when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.IN_PROGRESS);
 
-        jdbcTemplate.update("INSERT INTO deals (id, status, created_at, updated_at) VALUES (?, 'IN_PROGRESS', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", dealId);
+        jdbcTemplate.update("INSERT INTO deals (id, buyer_user_id, status, stop_reason, created_at, updated_at) VALUES (?, ?, 'IN_PROGRESS', 'NONE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", dealId, testBuyerId);
 
         DisputeDTO opened = disputeService.createDispute(
                 dealId,

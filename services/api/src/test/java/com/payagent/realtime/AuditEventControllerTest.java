@@ -71,6 +71,6 @@ class AuditEventControllerTest {
     void getDealTimeline_unauthenticated_returnsUnauthorized() throws Exception {
         UUID dealId = UUID.randomUUID();
         mockMvc.perform(get("/api/v1/deals/{id}/events", dealId))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 }
