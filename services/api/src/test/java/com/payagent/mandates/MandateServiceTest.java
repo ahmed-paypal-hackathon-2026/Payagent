@@ -42,7 +42,7 @@ class MandateServiceTest {
         UUID dealId = dealRepository.save(new Deal(UUID.randomUUID(), buyerId, sellerId, DealStatus.ACTIVE_NEGOTIATION)).getId();
 
         MandateService.MandateCreateRequest request = new MandateService.MandateCreateRequest(
-                "USD", 120_000L, 90_000L, 20, 15, 2, 1,
+                "USD", 120_000L, 90_000L, 20, 15, 2, 4,
                 List.of("core"), List.of("custom-tooling"),
                 NegotiationMode.ASSISTED, 10, OffsetDateTime.now().plusYears(1)
         );
@@ -65,12 +65,12 @@ class MandateServiceTest {
         UUID dealId = dealRepository.save(new Deal(UUID.randomUUID(), buyerId, sellerId, DealStatus.ACTIVE_NEGOTIATION)).getId();
 
         MandateService.MandateCreateRequest buyerRequest = new MandateService.MandateCreateRequest(
-                "USD", 120_000L, 90_000L, 20, 15, 2, 1,
+                "USD", 120_000L, 90_000L, 20, 15, 2, 4,
                 List.of(), List.of(),
                 NegotiationMode.ASSISTED, 10, OffsetDateTime.now().plusYears(1)
         );
         MandateService.MandateCreateRequest sellerRequest = new MandateService.MandateCreateRequest(
-                "USD", 90_000L, 120_000L, 20, 15, 2, 1,
+                "USD", 90_000L, 120_000L, 10, 15, 3, 1,
                 List.of(), List.of(),
                 NegotiationMode.ASSISTED, 10, OffsetDateTime.now().plusYears(1)
         );
