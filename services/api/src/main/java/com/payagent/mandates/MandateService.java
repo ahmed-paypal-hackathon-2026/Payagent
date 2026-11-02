@@ -86,8 +86,8 @@ public class MandateService {
                     m.getTargetDeliveryDays(),
                     m.getLimitRevisions(),
                     m.getTargetRevisions(),
-                    java.util.Collections.emptyList(),
-                    java.util.Collections.emptyList(),
+                            fromJson(m.getMustHaveDeliverablesJson()),
+                    fromJson(m.getForbiddenTermsJson()),
                     m.getMode(),
                     m.getMaxRounds(),
                     m.getExpiresAt().toString()
@@ -102,6 +102,18 @@ public class MandateService {
             return objectMapper.writeValueAsString(obj);
         } catch (Exception e) {
             return "[]";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.List<String> fromJson(String json) {
+        if (json == null || json.isBlank()) {
+            return java.util.Collections.emptyList();
+        }
+        try {
+            return objectMapper.readValue(json, java.util.List.class);
+        } catch (Exception e) {
+            return java.util.Collections.emptyList();
         }
     }
 

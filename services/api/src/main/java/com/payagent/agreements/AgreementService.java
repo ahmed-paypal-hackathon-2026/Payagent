@@ -29,6 +29,11 @@ public class AgreementService {
                 .map(a -> a.getVersion() + 1)
                 .orElse(1);
 
+        repository.findTopByDealIdOrderByVersionDesc(dealId).ifPresent(old -> {
+            old.clearAcceptances();
+            repository.save(old);
+        });
+
         Agreement agreement = new Agreement(UUID.randomUUID(), dealId, nextVersion, canonicalJson, hash);
         Agreement saved = repository.save(agreement);
 

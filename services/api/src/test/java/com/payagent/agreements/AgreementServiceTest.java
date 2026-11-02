@@ -98,4 +98,40 @@ class AgreementServiceTest {
         assertNull(newVersion.getBuyerAcceptedAt());
         assertNull(newVersion.getSellerAcceptedAt());
     }
+
+    @Test
+    void proposeAgreement_withOneCentChange_clearsBuyerAcceptance() {
+        Deal deal = createDeal(DealStatus.ACTIVE_NEGOTIATION);
+        StructuredTermsDTO terms1 = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 0, "c");
+        AgreementSnapshotDTO v1 = agreementService.proposeAgreement(deal.getId(), terms1);
+        String hash1 = v1.termsHashSha256();
+        agreementService.acceptAgreement(deal.getId(), v1.version(), hash1, "BUYER");
+
+        StructuredTermsDTO terms2 = new StructuredTermsDTO("T", List.of("a"), 1001L, "USD", 5, 0, "c");
+        AgreementSnapshotDTO v2 = agreementService.proposeAgreement(deal.getId(), terms2);
+
+        Agreement previous = agreementRepository.findByDealIdAndVersion(deal.getId(), v1.version()).orElseThrow();
+        Agreement latest = agreementRepository.findTopByDealIdOrderByVersionDesc(deal.getId()).orElseThrow();
+        assertNull(previous.getBuyerAcceptedAt());
+        assertEquals(v2.version(), latest.getVersion());
+        assertNotEquals(hash1, v2.termsHashSha256());
+    }
+
+    @Test
+    void proposeAgreement_withOneRevisionChange_clearsBuyerAcceptance() {
+        Deal deal = createDeal(DealStatus.ACTIVE_NEGOTIATION);
+        StructuredTermsDTO terms1 = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 0, "c");
+        AgreementSnapshotDTO v1 = agreementService.proposeAgreement(deal.getId(), terms1);
+        String hash1 = v1.termsHashSha256();
+        agreementService.acceptAgreement(deal.getId(), v1.version(), hash1, "BUYER");
+
+        StructuredTermsDTO terms2 = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 1, "c");
+        AgreementSnapshotDTO v2 = agreementService.proposeAgreement(deal.getId(), terms2);
+
+        Agreement previous = agreementRepository.findByDealIdAndVersion(deal.getId(), v1.version()).orElseThrow();
+        Agreement latest = agreementRepository.findTopByDealIdOrderByVersionDesc(deal.getId()).orElseThrow();
+        assertNull(previous.getBuyerAcceptedAt());
+        assertEquals(v2.version(), latest.getVersion());
+        assertNotEquals(hash1, v2.termsHashSha256());
+    }
 }
