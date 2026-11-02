@@ -26,8 +26,9 @@ public class MandateController {
             @PathVariable("id") UUID dealId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody MandateService.MandateCreateRequest req,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = resolveUserId(userIdAttr, principal);
         String route = "/api/v1/deals/" + dealId + "/mandates";
         return idempotencyService.execute(
                 idempotencyKey,
@@ -42,13 +43,17 @@ public class MandateController {
     @GetMapping
     public ResponseEntity<MandateDTO> getMandate(
             @PathVariable("id") UUID dealId,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = resolveUserId(userIdAttr, principal);
         MandateDTO dto = service.getMandateForUser(dealId, userId);
         return ResponseEntity.ok(dto);
     }
 
-    private UUID resolveUserId(Principal principal) {
+    private UUID resolveUserId(UUID userIdAttr, Principal principal) {
+        if (userIdAttr != null) {
+            return userIdAttr;
+        }
         try {
             return UUID.fromString(principal.getName());
         } catch (Exception e) {

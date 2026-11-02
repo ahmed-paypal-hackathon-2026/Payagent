@@ -1,5 +1,6 @@
 package com.payagent.settlement;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.payagent.settlement.exception.IdempotencyConflictException;
 import com.payagent.settlement.persistence.IdempotencyKeyEntity;
@@ -88,9 +89,20 @@ public class IdempotencyService {
         try {
             T cachedBody = objectMapper.readValue(existing.getResponseBody(), responseClass);
             return ResponseEntity.status(existing.getResponseStatus()).body(cachedBody);
-        } catch (Exception e) {
-            log.error("Failed to deserialize cached response for key {}: {}", idempotencyKey, e.getMessage());
-            throw new IllegalStateException("Failed to replay cached idempotent response", e);
+        } catch (Exception primaryFailure) {
+            // Some JSONB dialects return an already-serialized value as a JSON string.
+            // Accept that representation by unwrapping one textual layer before failing.
+            try {
+                JsonNode node = objectMapper.readTree(existing.getResponseBody());
+                if (node != null && node.isTextual()) {
+                    T cachedBody = objectMapper.readValue(node.asText(), responseClass);
+                    return ResponseEntity.status(existing.getResponseStatus()).body(cachedBody);
+                }
+            } catch (Exception ignored) {
+                // fall through to the original failure below
+            }
+            log.error("Failed to deserialize cached response for key {}: {}", idempotencyKey, primaryFailure.getMessage());
+            throw new IllegalStateException("Failed to replay cached idempotent response", primaryFailure);
         }
     }
 

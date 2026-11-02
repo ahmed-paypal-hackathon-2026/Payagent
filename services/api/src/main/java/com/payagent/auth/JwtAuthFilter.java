@@ -93,9 +93,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-        // Use userId as principal for consistent identity contract; authorities from UserDetails
+        // Principal carries the authenticated UserDetails (email identity) so email-based
+        // consumers keep working; UUID identity is propagated via request attributes.
         UsernamePasswordAuthenticationToken authToken =
-                new UsernamePasswordAuthenticationToken(userId, null, userDetails.getAuthorities());
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
 
         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
         SecurityContextHolder.getContext().setAuthentication(authToken);

@@ -40,8 +40,9 @@ public class OfferController {
             @PathVariable("id") UUID dealId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody OfferRequest req,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = resolveUserId(userIdAttr, principal);
         PartyRole role = dealService.requireMembership(dealId, userId);
         // verify deal state
         Deal deal = dealService.getDeal(dealId);
@@ -114,7 +115,10 @@ public class OfferController {
         );
     }
 
-    private UUID resolveUserId(Principal principal) {
+    private UUID resolveUserId(UUID userIdAttr, Principal principal) {
+        if (userIdAttr != null) {
+            return userIdAttr;
+        }
         try {
             return UUID.fromString(principal.getName());
         } catch (Exception e) {
