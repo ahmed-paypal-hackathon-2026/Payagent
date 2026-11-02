@@ -3,6 +3,7 @@ package com.payagent.paypal;
 import com.payagent.common.contracts.PaymentLifecycleStatus;
 import com.payagent.paypal.model.AuthorizeOrderResult;
 import com.payagent.paypal.model.CreateOrderCommand;
+import com.payagent.paypal.model.PayPalAuthorizationResponse;
 import com.payagent.paypal.model.PayPalCaptureResponse;
 import com.payagent.paypal.model.PayPalOrderResponse;
 import java.util.List;
@@ -187,6 +188,38 @@ public class PayPalOrderService {
         } catch (Exception e) {
             log.error("Failed to get order {}: {}", orderId, e.getMessage());
             throw new PayPalException(502, "ORDER_GET_FAILED", "Failed to get order " + orderId + ": " + e.getMessage(), e);
+        }
+    }
+
+    public PayPalAuthorizationResponse getAuthorization(String authorizationId) {
+        String token = authClient.getAccessToken();
+
+        try {
+            return restClient.get()
+                    .uri("/v2/payments/authorizations/{id}", authorizationId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                    .retrieve()
+                    .body(PayPalAuthorizationResponse.class);
+        } catch (Exception e) {
+            log.error("Failed to get authorization {}: {}", authorizationId, e.getMessage());
+            throw new PayPalException(502, "AUTHORIZATION_GET_FAILED",
+                    "Failed to get authorization " + authorizationId + ": " + e.getMessage(), e);
+        }
+    }
+
+    public PayPalCaptureResponse getCapture(String captureId) {
+        String token = authClient.getAccessToken();
+
+        try {
+            return restClient.get()
+                    .uri("/v2/payments/captures/{id}", captureId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                    .retrieve()
+                    .body(PayPalCaptureResponse.class);
+        } catch (Exception e) {
+            log.error("Failed to get capture {}: {}", captureId, e.getMessage());
+            throw new PayPalException(502, "CAPTURE_GET_FAILED",
+                    "Failed to get capture " + captureId + ": " + e.getMessage(), e);
         }
     }
 

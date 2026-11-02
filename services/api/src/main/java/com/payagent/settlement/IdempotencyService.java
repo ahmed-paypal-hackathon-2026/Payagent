@@ -10,27 +10,31 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IdempotencyService {
 
     private static final Logger log = LoggerFactory.getLogger(IdempotencyService.class);
+    private static final int LOCK_STRIPES = 64;
 
     private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final ObjectMapper objectMapper;
+    private final ReentrantLock[] keyLocks = new ReentrantLock[LOCK_STRIPES];
 
     public IdempotencyService(IdempotencyKeyRepository idempotencyKeyRepository, ObjectMapper objectMapper) {
         this.idempotencyKeyRepository = idempotencyKeyRepository;
         this.objectMapper = objectMapper;
+        for (int i = 0; i < LOCK_STRIPES; i++) {
+            keyLocks[i] = new ReentrantLock();
+        }
     }
 
-    @Transactional
     public <T> ResponseEntity<T> execute(String idempotencyKey, String route, UUID dealId, Object requestPayload,
                                          Class<T> responseClass, Supplier<ResponseEntity<T>> action) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
@@ -38,43 +42,56 @@ public class IdempotencyService {
         }
 
         String requestHash = computeHash(requestPayload);
-        Optional<IdempotencyKeyEntity> existingOpt = idempotencyKeyRepository.findByIdempotencyKeyAndRoute(idempotencyKey, route);
+        String lockKey = idempotencyKey + "|" + route;
+        ReentrantLock lock = keyLocks[Math.floorMod(lockKey.hashCode(), LOCK_STRIPES)];
 
-        if (existingOpt.isPresent()) {
-            IdempotencyKeyEntity existing = existingOpt.get();
-            if (!existing.getRequestHash().equals(requestHash)) {
-                log.warn("Idempotency conflict for key={} route={}: payload hash mismatch", idempotencyKey, route);
-                throw new IdempotencyConflictException("Idempotency key '" + idempotencyKey + "' has already been used with differing request parameters.");
-            }
-
-            log.info("Returning cached idempotent response for key={} route={}", idempotencyKey, route);
-            try {
-                T cachedBody = objectMapper.readValue(existing.getResponseBody(), responseClass);
-                return ResponseEntity.status(existing.getResponseStatus()).body(cachedBody);
-            } catch (Exception e) {
-                log.error("Failed to deserialize cached response for key {}: {}", idempotencyKey, e.getMessage());
-                throw new IllegalStateException("Failed to replay cached idempotent response", e);
-            }
-        }
-
-        ResponseEntity<T> response = action.get();
-
+        lock.lock();
         try {
-            String responseBodyJson = objectMapper.writeValueAsString(response.getBody());
-            IdempotencyKeyEntity record = new IdempotencyKeyEntity(
-                    idempotencyKey,
-                    route,
-                    dealId,
-                    requestHash,
-                    response.getStatusCode().value(),
-                    responseBodyJson
-            );
-            idempotencyKeyRepository.save(record);
-        } catch (Exception e) {
-            log.warn("Failed to store idempotency record for key {}: {}", idempotencyKey, e.getMessage());
+            Optional<IdempotencyKeyEntity> existingOpt =
+                    idempotencyKeyRepository.findByIdempotencyKeyAndRoute(idempotencyKey, route);
+
+            if (existingOpt.isPresent()) {
+                return replay(existingOpt.get(), idempotencyKey, route, requestHash, responseClass);
+            }
+
+            ResponseEntity<T> response = action.get();
+
+            try {
+                String responseBodyJson = objectMapper.writeValueAsString(response.getBody());
+                IdempotencyKeyEntity record = new IdempotencyKeyEntity(
+                        idempotencyKey,
+                        route,
+                        dealId,
+                        requestHash,
+                        response.getStatusCode().value(),
+                        responseBodyJson
+                );
+                idempotencyKeyRepository.save(record);
+            } catch (Exception e) {
+                log.warn("Failed to store idempotency record for key {}: {}", idempotencyKey, e.getMessage());
+            }
+
+            return response;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private <T> ResponseEntity<T> replay(IdempotencyKeyEntity existing, String idempotencyKey, String route,
+                                         String requestHash, Class<T> responseClass) {
+        if (!existing.getRequestHash().equals(requestHash)) {
+            log.warn("Idempotency conflict for key={} route={}: payload hash mismatch", idempotencyKey, route);
+            throw new IdempotencyConflictException("Idempotency key '" + idempotencyKey + "' has already been used with differing request parameters.");
         }
 
-        return response;
+        log.info("Returning cached idempotent response for key={} route={}", idempotencyKey, route);
+        try {
+            T cachedBody = objectMapper.readValue(existing.getResponseBody(), responseClass);
+            return ResponseEntity.status(existing.getResponseStatus()).body(cachedBody);
+        } catch (Exception e) {
+            log.error("Failed to deserialize cached response for key {}: {}", idempotencyKey, e.getMessage());
+            throw new IllegalStateException("Failed to replay cached idempotent response", e);
+        }
     }
 
     private String computeHash(Object payload) {

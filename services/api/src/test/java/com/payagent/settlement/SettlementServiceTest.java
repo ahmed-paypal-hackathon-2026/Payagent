@@ -78,6 +78,9 @@ class SettlementServiceTest {
 
         when(dealPort.getBuyerEmail(dealId)).thenReturn(buyerEmail);
         when(dealPort.getSellerEmail(dealId)).thenReturn(sellerEmail);
+        when(dealPort.lockDealAndGetStatus(dealId)).thenReturn(DealStatus.DELIVERABLES_SUBMITTED);
+        when(dealPort.hasOpenDispute(dealId)).thenReturn(false);
+        when(orderService.mapCaptureStatus("COMPLETED")).thenReturn(PaymentLifecycleStatus.COMPLETED);
     }
 
     @Test
@@ -140,6 +143,45 @@ class SettlementServiceTest {
     }
 
     @Test
+    void initiateSettlementReusesExistingSentInvoice() {
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.AGREED);
+
+        InvoiceEntity existingInvoice = new InvoiceEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                InvoiceLifecycleStatus.SENT,
+                "INV2-EXISTING",
+                "INV-EX",
+                "https://paypal.sandbox/view/existing",
+                98000L,
+                "USD"
+        );
+        PaymentEntity existingPayment = new PaymentEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                PaymentLifecycleStatus.ORDER_CREATED,
+                "ORD-EXISTING",
+                null,
+                null,
+                null,
+                98000L,
+                "USD"
+        );
+
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(existingInvoice));
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(existingPayment));
+
+        SettlementStateDTO state = settlementService.initiateSettlement(dealId, "idemp-key-reuse", buyerEmail);
+
+        assertThat(state.paypalInvoiceId()).isEqualTo("INV2-EXISTING");
+        assertThat(state.paypalOrderId()).isEqualTo("ORD-EXISTING");
+        verify(invoiceService, never()).createDraftInvoice(any(), any());
+        verify(invoiceService, never()).sendInvoice(any(), any());
+    }
+
+    @Test
     void initiateSettlementRejectsNonAgreedDealStatus() {
         when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.ACTIVE_NEGOTIATION);
 
@@ -176,6 +218,29 @@ class SettlementServiceTest {
 
         verify(dealPort).transitionDealStatus(dealId, DealStatus.IN_PROGRESS);
         verify(paymentRepository).save(payment);
+    }
+
+    @Test
+    void authorizeSettlementIsIdempotentWhenAlreadyAuthorized() {
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-TEST-123",
+                "AUTH-EXISTING",
+                null,
+                Instant.now().plusSeconds(86400),
+                98000L,
+                "USD"
+        );
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(payment));
+
+        SettlementStateDTO state = settlementService.authorizeSettlement(dealId, "ORD-TEST-123", "idemp-key-replay", buyerEmail);
+
+        assertThat(state.paymentStatus()).isEqualTo(PaymentLifecycleStatus.AUTHORIZED);
+        assertThat(state.paypalAuthorizationId()).isEqualTo("AUTH-EXISTING");
+        verify(orderService, never()).authorizeOrder(anyString(), anyString());
     }
 
     @Test
@@ -283,6 +348,106 @@ class SettlementServiceTest {
         // Asserts NO secondary call to PayPal capture or invoice payment was made
         verify(orderService, never()).captureAuthorization(anyString(), anyLong(), anyString(), anyString());
         verify(invoiceService, never()).recordPayment(anyString(), anyLong(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void acceptDeliverablesRechecksDisputeAfterLockingDeal() {
+        when(dealPort.lockDealAndGetStatus(dealId)).thenReturn(DealStatus.DISPUTED);
+
+        assertThatThrownBy(() -> settlementService.acceptDeliverables(dealId, 1, "key", buyerEmail))
+                .isInstanceOf(SettlementConflictException.class)
+                .hasMessageContaining("Capture blocked: deal is in DISPUTED status");
+
+        verify(orderService, never()).captureAuthorization(anyString(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void acceptDeliverablesRequiresDeliverablesSubmittedStatus() {
+        when(dealPort.lockDealAndGetStatus(dealId)).thenReturn(DealStatus.IN_PROGRESS);
+
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-123",
+                "AUTH-777",
+                null,
+                Instant.now().plusSeconds(86400),
+                98000L,
+                "USD"
+        );
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(payment));
+
+        assertThatThrownBy(() -> settlementService.acceptDeliverables(dealId, 1, "key", buyerEmail))
+                .isInstanceOf(SettlementConflictException.class)
+                .hasMessageContaining("required DELIVERABLES_SUBMITTED");
+
+        verify(orderService, never()).captureAuthorization(anyString(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void acceptDeliverablesLeavesDealOpenWhenCaptureIsPending() {
+        when(dealPort.isDealDisputed(dealId)).thenReturn(false);
+        when(orderService.mapCaptureStatus("PENDING")).thenReturn(PaymentLifecycleStatus.CAPTURE_PENDING);
+
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-123",
+                "AUTH-777",
+                null,
+                Instant.now().plusSeconds(86400),
+                98000L,
+                "USD"
+        );
+        InvoiceEntity invoice = new InvoiceEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                InvoiceLifecycleStatus.SENT,
+                "INV2-888",
+                "INV-01",
+                "https://paypal.sandbox/view",
+                98000L,
+                "USD"
+        );
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(payment));
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(invoice));
+        when(orderService.captureAuthorization(eq("AUTH-777"), eq(98000L), eq("USD"), anyString()))
+                .thenReturn(new PayPalCaptureResponse("CAP-PENDING", "PENDING", new PayPalCaptureResponse.Amount("USD", "980.00")));
+
+        SettlementStateDTO state = settlementService.acceptDeliverables(dealId, 1, "idemp-key-pending", buyerEmail);
+
+        assertThat(state.paymentStatus()).isEqualTo(PaymentLifecycleStatus.CAPTURE_PENDING);
+        assertThat(state.invoiceStatus()).isEqualTo(InvoiceLifecycleStatus.SENT);
+        verify(invoiceService, never()).recordPayment(anyString(), anyLong(), anyString(), anyString(), anyString());
+        verify(dealPort, never()).transitionDealStatus(dealId, DealStatus.CLOSED);
+    }
+
+    @Test
+    void voidSettlementRejectsVoidAfterCaptureCompleted() {
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                PaymentLifecycleStatus.COMPLETED,
+                "ORD-123",
+                "AUTH-777",
+                "CAP-DONE",
+                Instant.now().plusSeconds(86400),
+                98000L,
+                "USD"
+        );
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(payment));
+
+        assertThatThrownBy(() -> settlementService.voidSettlement(dealId, "cancel", "key", buyerEmail))
+                .isInstanceOf(SettlementConflictException.class)
+                .hasMessageContaining("already captured");
+
+        verify(orderService, never()).voidAuthorization(anyString(), anyString());
     }
 
     @Test

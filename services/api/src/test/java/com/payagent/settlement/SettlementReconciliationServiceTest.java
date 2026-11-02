@@ -161,6 +161,68 @@ class SettlementReconciliationServiceTest {
     }
 
     @Test
+    void captureDeniedMarksPaymentDeclined() throws Exception {
+        when(eventRepository.existsByEventId("EVT-CAP-DENIED-1")).thenReturn(false);
+
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.CAPTURE_PENDING,
+                "ORD-1", "AUTH-DENIED", "CAP-DENIED", null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalCaptureId("CAP-DENIED")).thenReturn(Optional.of(payment));
+
+        boolean processed = reconciliationService.processWebhookEvent(
+                "EVT-CAP-DENIED-1",
+                "PAYMENT.CAPTURE.DENIED",
+                "CAP-DENIED",
+                objectMapper.readTree("{\"id\":\"CAP-DENIED\"}"),
+                "{}"
+        );
+
+        assertThat(processed).isTrue();
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.DECLINED);
+        verify(paymentRepository).save(payment);
+    }
+
+    @Test
+    void captureCompletedAlsoMarksInvoicePaid() throws Exception {
+        when(eventRepository.existsByEventId("EVT-CAP-PAID-1")).thenReturn(false);
+
+        UUID dealId = UUID.randomUUID();
+        PaymentEntity payment = new PaymentEntity(
+                dealId, dealId, 1, PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-1", "AUTH-PAID", null, null, 98000L, "USD"
+        );
+        InvoiceEntity invoice = new InvoiceEntity(
+                UUID.randomUUID(), dealId, 1, InvoiceLifecycleStatus.SENT,
+                "INV2-PAID", "001", null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-PAID")).thenReturn(Optional.of(payment));
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(invoice));
+
+        boolean processed = reconciliationService.processWebhookEvent(
+                "EVT-CAP-PAID-1",
+                "PAYMENT.CAPTURE.COMPLETED",
+                "CAP-PAID",
+                objectMapper.readTree("""
+                        {
+                          "id": "CAP-PAID",
+                          "supplementary_data": {
+                            "related_ids": {
+                              "authorization_id": "AUTH-PAID"
+                            }
+                          }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(processed).isTrue();
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.COMPLETED);
+        assertThat(invoice.getLifecycleStatus()).isEqualTo(InvoiceLifecycleStatus.PAID);
+        verify(invoiceRepository).save(invoice);
+    }
+
+    @Test
     void invoicePaidUpdatesInvoiceStatus() throws Exception {
         when(eventRepository.existsByEventId("EVT-INV-PAID-1")).thenReturn(false);
 
