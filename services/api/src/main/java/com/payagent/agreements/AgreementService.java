@@ -49,6 +49,12 @@ public class AgreementService {
         Agreement agreement = repository.findByDealIdAndVersion(dealId, version)
                 .orElseThrow(() -> new AgreementNotFoundException("Agreement not found"));
 
+        com.payagent.deals.Deal deal = dealService.getDeal(dealId);
+        if (deal.getStatus() != com.payagent.common.contracts.DealStatus.TERMS_PENDING_ACCEPTANCE) {
+            throw new AgreementConflictException(
+                    "Agreement acceptance not allowed in status " + deal.getStatus());
+        }
+
         if (!agreement.getTermsHashSha256().equals(termsHashSha256)) {
             throw new AgreementConflictException("Hash mismatch");
         }

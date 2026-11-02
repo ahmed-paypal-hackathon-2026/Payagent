@@ -100,6 +100,34 @@ class AgreementServiceTest {
     }
 
     @Test
+    void acceptAgreement_requiresTermsPendingStatus() throws Exception {
+        Deal deal = createDeal(DealStatus.ACTIVE_NEGOTIATION);
+        ObjectMapper mapper = new ObjectMapper();
+        StructuredTermsDTO terms = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 0, "c");
+        String hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        agreementRepository.save(new Agreement(UUID.randomUUID(), deal.getId(), 1, mapper.writeValueAsString(terms), hash));
+
+        AgreementConflictException ex = assertThrows(AgreementConflictException.class,
+                () -> agreementService.acceptAgreement(deal.getId(), 1, hash, "BUYER"));
+        assertTrue(ex.getMessage().contains("not allowed"));
+    }
+
+    @Test
+    void acceptAgreement_rejectedAfterDealAgreed() {
+        Deal deal = createDeal(DealStatus.ACTIVE_NEGOTIATION);
+        StructuredTermsDTO terms = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 0, "c");
+        AgreementSnapshotDTO v1 = agreementService.proposeAgreement(deal.getId(), terms);
+        String hash = v1.termsHashSha256();
+        agreementService.acceptAgreement(deal.getId(), v1.version(), hash, "BUYER");
+        agreementService.acceptAgreement(deal.getId(), v1.version(), hash, "SELLER");
+        assertEquals(DealStatus.AGREED, dealRepository.findById(deal.getId()).orElseThrow().getStatus());
+
+        AgreementConflictException ex = assertThrows(AgreementConflictException.class,
+                () -> agreementService.acceptAgreement(deal.getId(), v1.version(), hash, "BUYER"));
+        assertTrue(ex.getMessage().contains("not allowed"));
+    }
+
+    @Test
     void proposeAgreement_withOneCentChange_clearsBuyerAcceptance() {
         Deal deal = createDeal(DealStatus.ACTIVE_NEGOTIATION);
         StructuredTermsDTO terms1 = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 0, "c");

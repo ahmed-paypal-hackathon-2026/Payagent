@@ -10,6 +10,7 @@ import com.payagent.mandates.UtilityCalculator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Service
@@ -42,10 +43,14 @@ public class NegotiationAgreementBridge {
         if (terms == null) {
             throw new IllegalArgumentException("Terms required");
         }
-        // Re-validate mandate server-side
+        // Re-validate mandate server-side and run the trader-side utility veto
         com.payagent.common.contracts.MandateDTO mandate = mandateService.getMandateForUser(dealId, userId);
-        // Simple veto check via utility
-        // In real implementation, use UtilityCalculator to ensure compliance
+        BigDecimal utility = role == com.payagent.common.contracts.PartyRole.BUYER
+                ? utilityCalculator.buyerUtility(mandate, terms)
+                : utilityCalculator.sellerUtility(mandate, terms);
+        if (utility.compareTo(BigDecimal.valueOf(-1)) == 0) {
+            throw new IllegalArgumentException("Terms violate caller mandate veto");
+        }
         if (decision.action() == NegotiationAction.ACCEPT && !decision.requiresHumanApproval()) {
             return agreementService.proposeAgreement(dealId, terms);
         }

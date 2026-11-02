@@ -71,6 +71,24 @@ class NegotiationAgreementBridgeIntegrationTest {
     }
 
     @Test
+    void mandateVetoBlocksAgreementProposal() {
+        UUID buyer = UUID.randomUUID();
+        UUID seller = UUID.randomUUID();
+        UUID dealId = UUID.randomUUID();
+        dealRepository.save(new Deal(dealId, buyer, seller, DealStatus.ACTIVE_NEGOTIATION));
+        mandateRepository.save(createMandateEntity(dealId, PartyRole.BUYER));
+        mandateRepository.save(createMandateEntity(dealId, PartyRole.SELLER));
+
+        StructuredTermsDTO violatingTerms = new StructuredTermsDTO("t", List.of("core"), 200000L, "USD", 15, 4, "ok");
+        ProposedOfferDTO decision = buildDecision(dealId.toString(), PartyRole.BUYER, NegotiationAction.ACCEPT, violatingTerms, false);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> bridge.proposeFromNegotiation(dealId, buyer, decision));
+        assertTrue(ex.getMessage().contains("mandate veto"));
+        assertTrue(agreementRepository.findAll().isEmpty());
+    }
+
+    @Test
     void nonAcceptActionDoesNotCreateAgreement() {
         UUID buyer = UUID.randomUUID();
         UUID seller = UUID.randomUUID();
