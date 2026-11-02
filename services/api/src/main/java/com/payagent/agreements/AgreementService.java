@@ -21,6 +21,8 @@ public class AgreementService {
 
     @Transactional
     public AgreementSnapshotDTO proposeAgreement(UUID dealId, StructuredTermsDTO terms) {
+        dealService.getDealForUpdate(dealId);
+
         String canonicalJson = Rfc8785Canonicalizer.canonicalize(terms);
         byte[] canonicalBytes = Rfc8785Canonicalizer.canonicalBytes(terms);
         String hash = Sha256Hasher.hash(canonicalBytes);
@@ -46,7 +48,7 @@ public class AgreementService {
 
     @Transactional
     public AgreementSnapshotDTO acceptAgreement(UUID dealId, int version, String termsHashSha256, String partyRole) {
-        Agreement agreement = repository.findByDealIdAndVersion(dealId, version)
+        Agreement agreement = repository.findByDealIdAndVersionForUpdate(dealId, version)
                 .orElseThrow(() -> new AgreementNotFoundException("Agreement not found"));
 
         com.payagent.deals.Deal deal = dealService.getDeal(dealId);

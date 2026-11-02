@@ -26,6 +26,7 @@ public class MandateService {
     @Transactional
     public MandateDTO createMandate(UUID dealId, UUID userId, MandateCreateRequest req) {
         PartyRole role = dealService.requireMembership(dealId, userId);
+        dealService.getDealForUpdate(dealId);
         validateRequest(req, role);
         int nextVersion = repository.findTopByDealIdAndPartyRoleOrderByVersionDesc(dealId, role)
                 .map(m -> m.getVersion() + 1)

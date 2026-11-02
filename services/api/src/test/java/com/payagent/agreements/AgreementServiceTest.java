@@ -62,6 +62,23 @@ class AgreementServiceTest {
     }
 
     @Test
+    void proposeAgreement_rejectedFromNonNegotiationStatuses() {
+        StructuredTermsDTO terms = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 0, "c");
+        List<DealStatus> blocked = List.of(
+                DealStatus.DRAFT, DealStatus.INVITED, DealStatus.SETTLEMENT_PENDING,
+                DealStatus.IN_PROGRESS, DealStatus.DELIVERABLES_SUBMITTED, DealStatus.ACCEPTED,
+                DealStatus.DISPUTED, DealStatus.CLOSED, DealStatus.CANCELLED);
+        for (DealStatus status : blocked) {
+            Deal deal = createDeal(status);
+            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                    () -> agreementService.proposeAgreement(deal.getId(), terms),
+                    "Expected rejection from status " + status);
+            assertTrue(ex.getMessage().contains("Illegal deal transition"), "Status " + status);
+            assertEquals(status, dealRepository.findById(deal.getId()).orElseThrow().getStatus());
+        }
+    }
+
+    @Test
     void acceptAgreement_bothParties_reachesAgreedViaValidTransition() throws Exception {
         Deal deal = createDeal(DealStatus.TERMS_PENDING_ACCEPTANCE);
         StructuredTermsDTO terms = new StructuredTermsDTO("T", List.of("a"), 1000L, "USD", 5, 0, "c");

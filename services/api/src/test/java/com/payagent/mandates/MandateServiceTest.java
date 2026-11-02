@@ -57,4 +57,37 @@ class MandateServiceTest {
         assertEquals(List.of("core"), loaded.mustHaveDeliverables());
         assertEquals(List.of("custom-tooling"), loaded.forbiddenTerms());
     }
+
+    @Test
+    void repeatedCreatesIncrementVersionPerRole() throws Exception {
+        UUID buyerId = UUID.randomUUID();
+        UUID sellerId = UUID.randomUUID();
+        UUID dealId = dealRepository.save(new Deal(UUID.randomUUID(), buyerId, sellerId, DealStatus.ACTIVE_NEGOTIATION)).getId();
+
+        MandateService.MandateCreateRequest buyerRequest = new MandateService.MandateCreateRequest(
+                "USD", 120_000L, 90_000L, 20, 15, 2, 1,
+                List.of(), List.of(),
+                NegotiationMode.ASSISTED, 10, OffsetDateTime.now().plusYears(1)
+        );
+        MandateService.MandateCreateRequest sellerRequest = new MandateService.MandateCreateRequest(
+                "USD", 90_000L, 120_000L, 20, 15, 2, 1,
+                List.of(), List.of(),
+                NegotiationMode.ASSISTED, 10, OffsetDateTime.now().plusYears(1)
+        );
+
+        MandateDTO buyerV1 = mandateService.createMandate(dealId, buyerId, buyerRequest);
+        MandateDTO sellerV1 = mandateService.createMandate(dealId, sellerId, sellerRequest);
+        assertEquals(PartyRole.BUYER, buyerV1.partyRole());
+        assertEquals(1, buyerV1.version());
+        assertEquals(PartyRole.SELLER, sellerV1.partyRole());
+        assertEquals(1, sellerV1.version());
+
+        MandateDTO buyerV2 = mandateService.createMandate(dealId, buyerId, buyerRequest);
+        assertEquals(2, buyerV2.version());
+        assertEquals(PartyRole.BUYER, buyerV2.partyRole());
+
+        MandateDTO sellerV2 = mandateService.createMandate(dealId, sellerId, sellerRequest);
+        assertEquals(2, sellerV2.version());
+        assertEquals(PartyRole.SELLER, sellerV2.partyRole());
+    }
 }

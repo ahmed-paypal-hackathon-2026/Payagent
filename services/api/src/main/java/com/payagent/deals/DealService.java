@@ -27,6 +27,16 @@ public class DealService {
     }
 
     /**
+     * Loads the deal with a pessimistic write lock to serialize per-deal mutations
+     * (e.g. mandate/agreement version allocation, dual-consent acceptance).
+     */
+    @Transactional
+    public Deal getDealForUpdate(UUID dealId) {
+        return repository.findByIdForUpdate(dealId)
+                .orElseThrow(() -> new IllegalArgumentException("Deal not found: " + dealId));
+    }
+
+    /**
      * Returns the party role of the given user on the deal, or null if the user is not a participant.
      * Server-derived only; never trust a client-supplied role.
      */
