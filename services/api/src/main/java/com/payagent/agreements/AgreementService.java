@@ -85,14 +85,18 @@ public class AgreementService {
     }
 
     @Transactional
-    public AgreementSnapshotDTO proposeNewVersion(UUID dealId, StructuredTermsDTO terms) {
-        // Clearing prior acceptances is implicit: a new version row starts with null acceptances.
+    public AgreementSnapshotDTO proposeNewVersion(UUID dealId, StructuredTermsDTO terms) {        // Clearing prior acceptances is implicit: a new version row starts with null acceptances.
         // Explicitly clear on the latest old version for auditability.
         repository.findTopByDealIdOrderByVersionDesc(dealId).ifPresent(old -> {
             old.clearAcceptances();
             repository.save(old);
         });
         return proposeAgreement(dealId, terms);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<AgreementSnapshotDTO> getLatestSnapshot(UUID dealId) {
+        return repository.findTopByDealIdOrderByVersionDesc(dealId).map(this::toSnapshot);
     }
 
     private AgreementSnapshotDTO toSnapshot(Agreement a) {

@@ -12,6 +12,8 @@ public interface OfferRepository extends JpaRepository<Offer, UUID> {
 
     List<Offer> findByDealIdOrderByRoundNumberDesc(UUID dealId);
 
+    List<Offer> findByDealIdOrderByRoundNumberAsc(UUID dealId);
+
     @Query("SELECT MAX(o.roundNumber) FROM Offer o WHERE o.dealId = ?1")
     Integer findMaxRoundNumberByDealId(UUID dealId);
 }
