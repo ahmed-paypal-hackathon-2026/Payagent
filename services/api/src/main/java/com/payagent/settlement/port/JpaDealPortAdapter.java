@@ -90,11 +90,19 @@ public class JpaDealPortAdapter implements DealPort {
     }
 
     @Override
-    public boolean isDealDisputed(UUID dealId) {
-        Deal deal = dealRepository.findById(dealId).orElse(null);
-        if (deal != null && deal.getStatus() == DealStatus.DISPUTED) {
-            return true;
+    public DealStatus lockDealAndGetStatus(UUID dealId) {
+        String status;
+        try {
+            status = jdbcTemplate.queryForObject(
+                    "SELECT status FROM deals WHERE id = ? FOR UPDATE", String.class, dealId);
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            throw new SettlementNotFoundException("Deal not found: " + dealId);
         }
+        return status != null ? DealStatus.valueOf(status) : null;
+    }
+
+    @Override
+    public boolean hasOpenDispute(UUID dealId) {
         try {
             Integer count = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM disputes WHERE deal_id = ? AND status IN ('OPEN', 'UNDER_PARTIES_REVIEW')",
@@ -103,6 +111,15 @@ public class JpaDealPortAdapter implements DealPort {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    @Override
+    public boolean isDealDisputed(UUID dealId) {
+        Deal deal = dealRepository.findById(dealId).orElse(null);
+        if (deal != null && deal.getStatus() == DealStatus.DISPUTED) {
+            return true;
+        }
+        return hasOpenDispute(dealId);
     }
 
     @Override
