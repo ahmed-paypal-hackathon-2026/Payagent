@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { formatDateTime } from "@/lib/format";
+import type { StreamStatus } from "@/lib/api/live-events";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -30,14 +30,22 @@ export function AuditPanel({
   mode,
   refreshing = false,
   onRefresh,
+  streamStatus,
 }: {
   events: AuditPanelEvent[];
   mode: "mock" | "live";
   refreshing?: boolean;
   onRefresh?: () => void;
+  streamStatus?: StreamStatus;
 }) {
-  const [afterSeq, setAfterSeq] = useState("0");
   const live = mode === "live";
+  const [afterSeq, setAfterSeq] = useState("0");
+  const streamBadge =
+    streamStatus === "live"
+      ? { tone: "success" as const, label: "Live push" }
+      : streamStatus === "connecting"
+        ? { tone: "warning" as const, label: "Connecting push" }
+        : undefined;
   const cursor = Number(afterSeq);
   const safeCursor = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
   const filtered = useMemo(
@@ -55,7 +63,12 @@ export function AuditPanel({
               ? "Sequenced events from GET /events with ?afterSeq cursoring; role-scoped sanitization runs on the server."
               : "Sequenced events recorded by the demo engine."
           }
-          action={<Badge tone="neutral">{filtered.length} shown</Badge>}
+          action={
+            <div className="flex flex-wrap items-center gap-1.5">
+              {streamBadge ? <Badge tone={streamBadge.tone}>{streamBadge.label}</Badge> : null}
+              <Badge tone="neutral">{filtered.length} shown</Badge>
+            </div>
+          }
         />
         <CardBody className="space-y-4">
           <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">

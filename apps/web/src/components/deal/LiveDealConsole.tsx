@@ -33,6 +33,7 @@ import { OfferComparison } from "./OfferComparison";
 import { TermsSummary } from "./TermsSummary";
 import { DeliverablesPanel, type DeliverablesActions } from "./DeliverablesPanel";
 import { AuditPanel, type AuditPanelEvent } from "./AuditPanel";
+import { openDealEventStream, type StreamStatus } from "@/lib/api/live-events";
 
 type AuditEventApiDTO = import("@/lib/api/client").AuditEventApiDTO;
 
@@ -58,11 +59,12 @@ function mapAuditEvent(event: AuditEventApiDTO): AuditPanelEvent {
   };
 }
 
-function LiveAuditTimeline({ dealId, token }: { dealId: string; token: string }) {
+function LiveAuditTimeline({ dealId, apiBaseUrl, token }: { dealId: string; apiBaseUrl: string; token: string }) {
   const [events, setEvents] = useState<AuditPanelEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -90,6 +92,22 @@ function LiveAuditTimeline({ dealId, token }: { dealId: string; token: string })
     return () => window.clearInterval(timer);
   }, [refresh]);
 
+  useEffect(() => {
+    const closeStream = openDealEventStream({
+      apiBaseUrl,
+      dealId,
+      token,
+      onEnvelope: (envelope) => {
+        const mapped = mapAuditEvent({ ...envelope, createdAt: envelope.timestamp });
+        setEvents((previous) =>
+          previous.some((event) => event.seq === mapped.seq) ? previous : [...previous, mapped],
+        );
+      },
+      onStatus: setStreamStatus,
+    });
+    return closeStream;
+  }, [apiBaseUrl, dealId, token]);
+
   if (missing) {
     return (
       <Card>
@@ -105,7 +123,15 @@ function LiveAuditTimeline({ dealId, token }: { dealId: string; token: string })
     return <Alert tone="error">Audit timeline unavailable: {error}</Alert>;
   }
 
-  return <AuditPanel events={events} mode="live" refreshing={refreshing} onRefresh={() => void refresh()} />;
+  return (
+    <AuditPanel
+      events={events}
+      mode="live"
+      streamStatus={streamStatus}
+      refreshing={refreshing}
+      onRefresh={() => void refresh()}
+    />
+  );
 }
 
 function messageFor(error: unknown): string {
@@ -481,6 +507,7 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
   }
 
   const pendingForThisDeal = LIVE_CAPABILITIES.filter((item) => item.state === "pending");
+  const allCapabilitiesLive = pendingForThisDeal.length === 0;
 
   return (
     <div className="space-y-4">
@@ -832,32 +859,39 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
             <DeliverablesPanel workspace={workspace} actions={liveDeliverablesActions} mode="live" />
           ) : null}
 
-          <LiveAuditTimeline dealId={dealId} token={liveSession.token} />
+          <LiveAuditTimeline dealId={dealId} apiBaseUrl={apiBaseUrl} token={liveSession.token} />
 
-          <Card>
-            <CardHeader
-              title="Actions pending backend routes"
-              description="These are deliberately disabled in live mode. The UI does not fabricate hashes, IDs, or events."
-            />
-            <CardBody>
-              <div className="grid gap-2 md:grid-cols-2">
-                {pendingForThisDeal.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
-                    <div className="flex flex-wrap items-center justify-between gap-1">
-                      <p className="text-xs font-semibold text-amber-950">{item.label}</p>
-                      <Badge tone="warning">{item.owner}</Badge>
+          {allCapabilitiesLive ? (
+            <Alert tone="success" title="All live capabilities verified">
+              Every console action above is backed by a real endpoint: negotiation, agreements, settlement, evidence,
+              disputes, audit timeline, and the WebSocket event push. Acceptance and dispute copy claims nothing the API
+              did not confirm.
+            </Alert>
+          ) : (
+            <Card>
+              <CardHeader
+                title="Actions pending backend routes"
+                description="These are deliberately disabled in live mode. The UI does not fabricate hashes, IDs, or events."
+              />
+              <CardBody>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {pendingForThisDeal.map((item) => (
+                    <div key={item.id} className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <p className="text-xs font-semibold text-amber-950">{item.label}</p>
+                        <Badge tone="warning">{item.owner}</Badge>
+                      </div>
+                      <p className="mt-0.5 font-mono text-[10px] text-amber-900/80">{item.endpoint}</p>
                     </div>
-                    <p className="mt-0.5 font-mono text-[10px] text-amber-900/80">{item.endpoint}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 text-xs leading-relaxed text-slate-500">
-                Deliverable evidence, acceptance, dispute actions, and the audit timeline are wired above; their data
-                comes from the workspace snapshot and the events endpoint. The remaining entry is the WebSocket live
-                replay; until then the timeline polls every 20 seconds.
-              </p>
-            </CardBody>
-          </Card>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                  Deliverable evidence, acceptance, dispute actions, and the audit timeline are wired above; their data
+                  comes from the workspace snapshot and the events endpoint.
+                </p>
+              </CardBody>
+            </Card>
+          )}
         </>
       ) : null}
     </div>

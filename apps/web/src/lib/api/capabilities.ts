@@ -117,9 +117,9 @@ export const LIVE_CAPABILITIES: LiveCapability[] = [
   {
     id: "audit-ws",
     label: "WebSocket live replay",
-    state: "pending",
-    owner: "Member E",
-    endpoint: "WSS /ws/deals/{id} (STOMP)",
-    note: "Until wired, the console polls the audit timeline every 20 seconds instead of pushing live.",
+    state: "available",
+    owner: "Member E / D",
+    endpoint: "WS /ws (STOMP 1.2 over native WebSocket)",
+    note: "JWT in the CONNECT header, membership-checked /topic/deals/{id}; envelopes append live and the poll stays on as a safety net.",
   },
 ];
