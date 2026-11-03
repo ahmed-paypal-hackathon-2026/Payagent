@@ -31,6 +31,7 @@ import { DealStatusBadge, InvoiceStatusBadge, PaymentStatusBadge } from "./Statu
 import { MandateSummary } from "./MandateSummary";
 import { OfferComparison } from "./OfferComparison";
 import { TermsSummary } from "./TermsSummary";
+import { DeliverablesPanel, type DeliverablesActions } from "./DeliverablesPanel";
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiNetworkError || error instanceof ApiError) return error.message;
@@ -352,6 +353,35 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
       setBusy(null);
     }
   }
+
+  const liveDeliverablesActions: DeliverablesActions = {
+    uploadEvidence: async (_dealId, file) => {
+      if (!token) throw new Error("Sign in again.");
+      const evidence = await api.uploadEvidence(dealId, token, file);
+      void load();
+      return evidence;
+    },
+    acceptDeliverables: async (_dealId, evidenceVersion) => {
+      if (!token) throw new Error("Sign in again.");
+      const state = await api.acceptDeliverables(dealId, evidenceVersion, token);
+      setSettlement(state);
+      updateSession({ statusHint: state.paymentStatus === "COMPLETED" ? "CLOSED" : "IN_PROGRESS" });
+      void load();
+      return state;
+    },
+    openDispute: async (_dealId, reason, resolutionRequest) => {
+      if (!token) throw new Error("Sign in again.");
+      await api.openDispute(dealId, token, reason, resolutionRequest);
+      try {
+        const next = await api.getDealWorkspace(dealId, token);
+        setWorkspace(next);
+        return next;
+      } catch {
+        if (workspace) return workspace;
+        throw new Error("The dispute was opened, but the workspace could not be refreshed.");
+      }
+    },
+  };
 
   if (!ready) {
     return <Alert tone="info">Loading session…</Alert>;
@@ -723,6 +753,10 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
             </CardBody>
           </Card>
 
+          {workspace ? (
+            <DeliverablesPanel workspace={workspace} actions={liveDeliverablesActions} mode="live" />
+          ) : null}
+
           <Card>
             <CardHeader
               title="Actions pending backend routes"
@@ -741,8 +775,8 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
                 ))}
               </div>
               <p className="mt-3 text-xs leading-relaxed text-slate-500">
-                In particular, accepting deliverables is unavailable because there is no evidence-list endpoint to verify a
-                version, and opening a dispute is unavailable because the disputes route is not published.
+                Deliverable evidence, acceptance, and dispute actions are wired above; their data comes from the workspace
+                snapshot. The remaining entries are standalone list endpoints and the audit/realtime integrations.
               </p>
             </CardBody>
           </Card>

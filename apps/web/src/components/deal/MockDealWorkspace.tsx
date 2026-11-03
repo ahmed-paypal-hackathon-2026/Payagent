@@ -125,7 +125,7 @@ function nextAction(workspace: DealWorkspaceDTO): { title: string; body: string;
 }
 
 export function MockDealWorkspace({ dealId }: { dealId: string }) {
-  const { db, currentUser, users, getWorkspace, setCurrentUserId } = useMockData();
+  const { db, currentUser, users, getWorkspace, setCurrentUserId, actions } = useMockData();
   const workspace = getWorkspace(dealId);
   const deal = db.deals[dealId];
   const [tab, setTab] = useState<TabKey>(() => initialTab(workspace?.status ?? "DRAFT"));
@@ -279,7 +279,9 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
         {tab === "settlement" ? (
           <SettlementPanel workspace={workspace} onOpenDeliverables={() => setTab("deliverables")} />
         ) : null}
-        {tab === "deliverables" ? <DeliverablesPanel workspace={workspace} /> : null}
+        {tab === "deliverables" ? (
+          <DeliverablesPanel workspace={workspace} actions={actions} mode="mock" />
+        ) : null}
         {tab === "audit" ? <AuditPanel dealId={workspace.dealId} /> : null}
       </div>
 

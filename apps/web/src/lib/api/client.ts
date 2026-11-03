@@ -1,6 +1,7 @@
 import type {
   AgreementSnapshotDTO,
   DealWorkspaceDTO,
+  DeliverableEvidenceDTO,
   MandateDTO,
   OfferDTO,
   SettlementStateDTO,
@@ -44,7 +45,18 @@ interface RequestOptions {
   method?: "GET" | "POST";
   token?: string | null;
   body?: unknown;
+  form?: FormData;
   idempotencyKey?: string;
+}
+
+export interface DisputeMutationResult {
+  id: string;
+  dealId: string;
+  status: string;
+  reason: string;
+  resolutionRequest: string | null;
+  openedAt: string;
+  resolvedAt: string | null;
 }
 
 function idempotencyKey(): string {
@@ -90,12 +102,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
   if (options.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey);
 
+  const payload = options.form ?? (options.body === undefined ? undefined : JSON.stringify(options.body));
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
-      method: options.method ?? "GET",
+      method: options.method ?? (options.form ? "POST" : "GET"),
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: payload,
       cache: "no-store",
     });
   } catch {
@@ -219,6 +233,31 @@ export const api = {
 
   getDealWorkspace(dealId: string, token: string): Promise<DealWorkspaceDTO> {
     return request(dealPath(dealId, "/workspace"), { token });
+  },
+
+  uploadEvidence(dealId: string, token: string, file: File): Promise<DeliverableEvidenceDTO> {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return request(dealPath(dealId, "/evidence"), {
+      method: "POST",
+      token,
+      form,
+      idempotencyKey: idempotencyKey(),
+    });
+  },
+
+  openDispute(
+    dealId: string,
+    token: string,
+    reason: string,
+    resolutionRequest: string | null,
+  ): Promise<DisputeMutationResult> {
+    return request(dealPath(dealId, "/disputes"), {
+      method: "POST",
+      token,
+      idempotencyKey: idempotencyKey(),
+      body: { reason, resolutionRequest: resolutionRequest ?? null },
+    });
   },
 
   initiateSettlement(dealId: string, token: string): Promise<SettlementStateDTO> {
