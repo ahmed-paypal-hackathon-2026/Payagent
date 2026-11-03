@@ -217,6 +217,10 @@ export const api = {
     return request(dealPath(dealId, "/settlement"), { token });
   },
 
+  getDealWorkspace(dealId: string, token: string): Promise<DealWorkspaceDTO> {
+    return request(dealPath(dealId, "/workspace"), { token });
+  },
+
   initiateSettlement(dealId: string, token: string): Promise<SettlementStateDTO> {
     return request(dealPath(dealId, "/settlement/initiate"), {
       method: "POST",
@@ -256,14 +260,5 @@ export const api = {
     });
   },
 };
-
-export function workspaceEndpointUnavailable(): never {
-  throw new ApiError(
-    "/api/v1/deals/{id}/workspace",
-    501,
-    "The backend does not expose a deal workspace snapshot endpoint yet.",
-    "Member A owns the workspace assembly route. Until it exists, the browser cannot load offers, agreement history, evidence, or current status in one verified response.",
-  );
-}
 
 export type { DealWorkspaceDTO };

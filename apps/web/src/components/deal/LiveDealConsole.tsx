@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AgreementSnapshotDTO,
   DealStatus,
+  DealWorkspaceDTO,
   MandateDTO,
   OfferDTO,
   PartyRole,
@@ -125,6 +126,7 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
   const token = liveSession?.token ?? null;
 
   const [sessionState, setSessionState] = useState<LiveDealSession | null>(null);
+  const [workspace, setWorkspace] = useState<DealWorkspaceDTO | null>(null);
   const [mandate, setMandate] = useState<MandateDTO | null>(null);
   const [settlement, setSettlement] = useState<SettlementStateDTO | null>(null);
   const [agreement, setAgreement] = useState<AgreementSnapshotDTO | null>(null);
@@ -141,9 +143,10 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
 
   const status = useMemo<DealStatus | null>(() => {
     const serverDerived = deriveStatus(agreement, settlement);
-    return serverDerived ?? sessionState?.statusHint ?? null;
-  }, [agreement, sessionState?.statusHint, settlement]);
-  const role: PartyRole | null = mandate?.partyRole ?? sessionState?.roleHint ?? null;
+    return serverDerived ?? workspace?.status ?? sessionState?.statusHint ?? null;
+  }, [agreement, sessionState?.statusHint, settlement, workspace?.status]);
+  const role: PartyRole | null =
+    mandate?.partyRole ?? workspace?.myRole ?? sessionState?.roleHint ?? null;
   const currentAgreement = agreement ?? sessionState?.currentAgreement ?? null;
   const terms = sessionState?.terms ?? currentAgreement?.canonicalTerms ?? offers[offers.length - 1]?.terms;
   const isBuyer = role === "BUYER";
@@ -169,6 +172,29 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
     if (!token) return;
     setLoading(true);
     setLoadError(null);
+
+    let snapshot: DealWorkspaceDTO | null = null;
+    try {
+      snapshot = await api.getDealWorkspace(dealId, token);
+    } catch (caught) {
+      if (!(caught instanceof ApiError) || (caught.status !== 404 && caught.status !== 405)) {
+        setLoadError(messageFor(caught));
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (snapshot) {
+      setWorkspace(snapshot);
+      setMandate(snapshot.myMandate);
+      setSettlement(snapshot.settlement);
+      setAgreement(snapshot.currentAgreement);
+      setOffers(snapshot.offers);
+      updateSession({ roleHint: snapshot.myRole });
+      setLoading(false);
+      return;
+    }
+
     const [mandateResult, settlementResult] = await Promise.allSettled([
       api.getMandate(dealId, token),
       api.getSettlement(dealId, token),
@@ -379,12 +405,23 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
         only this API; PayPal Sandbox is reached by the backend.
       </Alert>
 
-      <Alert tone="warning" title="Workspace snapshot endpoint pending">
-        Member A has not published <code className="rounded bg-white/70 px-1">GET /api/v1/deals/{"{id}"}/workspace</code>.
-        This console can show your mandate, settlement state, and actions you perform in this tab. It cannot load offer
-        history, agreement history, evidence, dispute state, or status from the server. Actions stay gated by the
-        server-confirmed state below; when the status is unknown, status-dependent actions are disabled.
-      </Alert>
+      {!workspace ? (
+        <Alert tone="warning" title="Workspace snapshot endpoint pending">
+          Member A has not published <code className="rounded bg-white/70 px-1">GET /api/v1/deals/{"{id}"}/workspace</code>.
+          This console can show your mandate, settlement state, and actions you perform in this tab. It cannot load offer
+          history, agreement history, evidence, dispute state, or status from the server. Actions stay gated by the
+          server-confirmed state below; when the status is unknown, status-dependent actions are disabled.
+        </Alert>
+      ) : null}
+
+      {workspace?.disputeStatus && workspace.disputeStatus !== "NONE" ? (
+        <Alert
+          tone={workspace.status === "DISPUTED" ? "error" : "warning"}
+          title={`Dispute: ${workspace.disputeStatus.replaceAll("_", " ").toLowerCase()}`}
+        >
+          {workspace.disputeReason ?? "See dispute details in the deal record."}
+        </Alert>
+      ) : null}
 
       {loadError ? <Alert tone="error">{loadError}</Alert> : null}
       {feedback ? <Alert tone={feedback.tone}>{feedback.message}</Alert> : null}
@@ -523,8 +560,12 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
           {offers.length ? (
             <Card>
               <CardHeader
-                title="Offers submitted in this tab"
-                description="There is no offer list endpoint yet, so only this session's responses are shown."
+                title={workspace ? "Offer history from the API" : "Offers submitted in this tab"}
+                description={
+                  workspace
+                    ? "Loaded from the server workspace snapshot; new offers submitted here are appended."
+                    : "There is no offer list endpoint yet, so only this session's responses are shown."
+                }
               />
               <CardBody>
                 <OfferComparison offers={offers} myRole={role} />

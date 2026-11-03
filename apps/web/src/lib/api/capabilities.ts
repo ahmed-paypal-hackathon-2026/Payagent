@@ -61,10 +61,10 @@ export const LIVE_CAPABILITIES: LiveCapability[] = [
   {
     id: "workspace",
     label: "Deal workspace snapshot",
-    state: "pending",
+    state: "available",
     owner: "Member A",
     endpoint: "GET /api/v1/deals/{id}/workspace",
-    note: "Needed to load status, offers, agreement history, evidence, and dispute state together.",
+    note: "One verified response with status, own mandate, offers, agreement, settlement, evidence, and dispute state.",
   },
   {
     id: "offers-list",
