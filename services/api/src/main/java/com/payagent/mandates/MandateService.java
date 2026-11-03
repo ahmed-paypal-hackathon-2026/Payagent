@@ -16,17 +16,21 @@ public class MandateService {
     private final MandateRepository repository;
     private final DealService dealService;
     private final ObjectMapper objectMapper;
+    private final MandateValidator mandateValidator;
 
-    public MandateService(MandateRepository repository, DealService dealService, ObjectMapper objectMapper) {
+    public MandateService(MandateRepository repository, DealService dealService, ObjectMapper objectMapper,
+                          MandateValidator mandateValidator) {
         this.repository = repository;
         this.dealService = dealService;
         this.objectMapper = objectMapper;
+        this.mandateValidator = mandateValidator;
     }
 
     @Transactional
     public MandateDTO createMandate(UUID dealId, UUID userId, MandateCreateRequest req) {
         PartyRole role = dealService.requireMembership(dealId, userId);
-        validateRequest(req, role);
+        dealService.getDealForUpdate(dealId);
+        mandateValidator.validate(req, role);
         int nextVersion = repository.findTopByDealIdAndPartyRoleOrderByVersionDesc(dealId, role)
                 .map(m -> m.getVersion() + 1)
                 .orElse(1);
@@ -60,18 +64,6 @@ public class MandateService {
         return toDto(mandate);
     }
 
-    private void validateRequest(MandateCreateRequest req, PartyRole role) {
-        if (req.limitPriceMinorUnits() <= 0 || req.targetPriceMinorUnits() <= 0) {
-            throw new IllegalArgumentException("Price must be positive");
-        }
-        if (role == PartyRole.BUYER && req.targetPriceMinorUnits() > req.limitPriceMinorUnits()) {
-            throw new IllegalArgumentException("Target price cannot exceed limit for BUYER");
-        }
-        if (role == PartyRole.SELLER && req.targetPriceMinorUnits() < req.limitPriceMinorUnits()) {
-            throw new IllegalArgumentException("Target price cannot be below limit for SELLER");
-        }
-    }
-
     private MandateDTO toDto(Mandate m) {
         try {
             return new MandateDTO(
@@ -86,8 +78,8 @@ public class MandateService {
                     m.getTargetDeliveryDays(),
                     m.getLimitRevisions(),
                     m.getTargetRevisions(),
-                    java.util.Collections.emptyList(),
-                    java.util.Collections.emptyList(),
+                            fromJson(m.getMustHaveDeliverablesJson()),
+                    fromJson(m.getForbiddenTermsJson()),
                     m.getMode(),
                     m.getMaxRounds(),
                     m.getExpiresAt().toString()
@@ -102,6 +94,18 @@ public class MandateService {
             return objectMapper.writeValueAsString(obj);
         } catch (Exception e) {
             return "[]";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.List<String> fromJson(String json) {
+        if (json == null || json.isBlank()) {
+            return java.util.Collections.emptyList();
+        }
+        try {
+            return objectMapper.readValue(json, java.util.List.class);
+        } catch (Exception e) {
+            return java.util.Collections.emptyList();
         }
     }
 
