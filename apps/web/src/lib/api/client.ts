@@ -59,6 +59,15 @@ export interface DisputeMutationResult {
   resolvedAt: string | null;
 }
 
+export interface AuditEventApiDTO {
+  id: number | null;
+  dealId: string;
+  seq: number;
+  eventType: string;
+  payload: unknown;
+  createdAt: string;
+}
+
 function idempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `idem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -233,6 +242,12 @@ export const api = {
 
   getDealWorkspace(dealId: string, token: string): Promise<DealWorkspaceDTO> {
     return request(dealPath(dealId, "/workspace"), { token });
+  },
+
+  getAuditEvents(dealId: string, token: string, afterSeq = 0): Promise<AuditEventApiDTO[]> {
+    return request(dealPath(dealId, `/events?afterSeq=${Number.isInteger(afterSeq) && afterSeq > 0 ? afterSeq : 0}`), {
+      token,
+    });
   },
 
   uploadEvidence(dealId: string, token: string, file: File): Promise<DeliverableEvidenceDTO> {

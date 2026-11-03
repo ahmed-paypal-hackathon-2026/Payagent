@@ -108,10 +108,18 @@ export const LIVE_CAPABILITIES: LiveCapability[] = [
   },
   {
     id: "audit",
-    label: "Audit timeline and WebSocket replay",
+    label: "Audit timeline",
+    state: "available",
+    owner: "Member E / D",
+    endpoint: "GET /api/v1/deals/{id}/events?afterSeq=",
+    note: "Cursor-based timeline; the server sanitizes payloads per role before returning them.",
+  },
+  {
+    id: "audit-ws",
+    label: "WebSocket live replay",
     state: "pending",
     owner: "Member E",
-    endpoint: "GET /api/v1/deals/{id}/audit, WSS /ws/deals/{id}",
-    note: "Live mode shows no timeline events until the backend exposes them.",
+    endpoint: "WSS /ws/deals/{id} (STOMP)",
+    note: "Until wired, the console polls the audit timeline every 20 seconds instead of pushing live.",
   },
 ];

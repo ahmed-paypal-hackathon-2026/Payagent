@@ -32,6 +32,81 @@ import { MandateSummary } from "./MandateSummary";
 import { OfferComparison } from "./OfferComparison";
 import { TermsSummary } from "./TermsSummary";
 import { DeliverablesPanel, type DeliverablesActions } from "./DeliverablesPanel";
+import { AuditPanel, type AuditPanelEvent } from "./AuditPanel";
+
+type AuditEventApiDTO = import("@/lib/api/client").AuditEventApiDTO;
+
+function mapAuditEvent(event: AuditEventApiDTO): AuditPanelEvent {
+  const payload =
+    typeof event.payload === "object" && event.payload !== null ? (event.payload as Record<string, unknown>) : {};
+  const metadata: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
+      metadata[key] = value;
+    } else if (typeof value === "object") {
+      metadata[key] = JSON.stringify(value);
+    }
+  }
+  return {
+    dealId: event.dealId,
+    seq: event.seq,
+    type: event.eventType,
+    actorRole: typeof payload.actorRole === "string" ? payload.actorRole : null,
+    summary: "",
+    at: event.createdAt,
+    metadata: Object.keys(metadata).length ? metadata : null,
+  };
+}
+
+function LiveAuditTimeline({ dealId, token }: { dealId: string; token: string }) {
+  const [events, setEvents] = useState<AuditPanelEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const raw = await api.getAuditEvents(dealId, token);
+      setEvents(raw.map(mapAuditEvent));
+      setError(null);
+    } catch (caught) {
+      if (caught instanceof ApiError && (caught.status === 404 || caught.status === 405)) {
+        setMissing(true);
+      } else {
+        setError(messageFor(caught));
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [dealId, token]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void refresh(), 20000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  if (missing) {
+    return (
+      <Card>
+        <CardHeader
+          title="Audit timeline pending"
+          description="GET /events is not published by this backend yet, so no server timeline is shown. The UI does not invent events."
+        />
+      </Card>
+    );
+  }
+
+  if (error) {
+    return <Alert tone="error">Audit timeline unavailable: {error}</Alert>;
+  }
+
+  return <AuditPanel events={events} mode="live" refreshing={refreshing} onRefresh={() => void refresh()} />;
+}
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiNetworkError || error instanceof ApiError) return error.message;
@@ -757,6 +832,8 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
             <DeliverablesPanel workspace={workspace} actions={liveDeliverablesActions} mode="live" />
           ) : null}
 
+          <LiveAuditTimeline dealId={dealId} token={liveSession.token} />
+
           <Card>
             <CardHeader
               title="Actions pending backend routes"
@@ -775,8 +852,9 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
                 ))}
               </div>
               <p className="mt-3 text-xs leading-relaxed text-slate-500">
-                Deliverable evidence, acceptance, and dispute actions are wired above; their data comes from the workspace
-                snapshot. The remaining entries are standalone list endpoints and the audit/realtime integrations.
+                Deliverable evidence, acceptance, dispute actions, and the audit timeline are wired above; their data
+                comes from the workspace snapshot and the events endpoint. The remaining entry is the WebSocket live
+                replay; until then the timeline polls every 20 seconds.
               </p>
             </CardBody>
           </Card>

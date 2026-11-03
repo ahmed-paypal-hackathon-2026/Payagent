@@ -1,12 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useState } from "react";
 import { formatDateTime } from "@/lib/format";
-import { useMockData } from "@/providers/MockDataProvider";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input } from "@/components/ui/Field";
+export interface AuditPanelEvent {
+  dealId: string;
+  seq: number;
+  type: string;
+  actorRole: string | null;
+  summary: string;
+  at: string;
+  metadata: Record<string, string | number | boolean | null> | null;
+}
 
 function humanize(type: string): string {
   return type
@@ -16,10 +25,19 @@ function humanize(type: string): string {
     .join(" ");
 }
 
-export function AuditPanel({ dealId }: { dealId: string }) {
-  const { db } = useMockData();
+export function AuditPanel({
+  events,
+  mode,
+  refreshing = false,
+  onRefresh,
+}: {
+  events: AuditPanelEvent[];
+  mode: "mock" | "live";
+  refreshing?: boolean;
+  onRefresh?: () => void;
+}) {
   const [afterSeq, setAfterSeq] = useState("0");
-  const events = useMemo(() => db.deals[dealId]?.auditEvents ?? [], [db, dealId]);
+  const live = mode === "live";
   const cursor = Number(afterSeq);
   const safeCursor = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
   const filtered = useMemo(
@@ -31,8 +49,12 @@ export function AuditPanel({ dealId }: { dealId: string }) {
     <div className="space-y-4">
       <Card>
         <CardHeader
-          title="Audit timeline"
-          description="Sequenced events recorded by the demo engine. Live mode will use the backend audit/WebSocket feed when Member E publishes it."
+          title={live ? "Audit timeline from the API" : "Audit timeline"}
+          description={
+            live
+              ? "Sequenced events from GET /events with ?afterSeq cursoring; role-scoped sanitization runs on the server."
+              : "Sequenced events recorded by the demo engine."
+          }
           action={<Badge tone="neutral">{filtered.length} shown</Badge>}
         />
         <CardBody className="space-y-4">
@@ -64,7 +86,11 @@ export function AuditPanel({ dealId }: { dealId: string }) {
           {filtered.length === 0 ? (
             <EmptyState
               title="No events after this cursor"
-              description="Reset the cursor to see the full retained timeline. The demo never invents events for actions that did not run."
+              description={
+                live
+                  ? "Lower the cursor or refresh from the API to load newer events."
+                  : "Reset the cursor to see the full retained timeline. The demo never invents events for actions that did not run."
+              }
             />
           ) : (
             <ol className="relative space-y-4 border-l border-slate-200 pl-5">
@@ -85,7 +111,9 @@ export function AuditPanel({ dealId }: { dealId: string }) {
                       </div>
                       <time className="text-[11px] text-slate-500">{formatDateTime(event.at)}</time>
                     </div>
-                    <p className="mt-1 text-sm leading-relaxed text-slate-700">{event.summary}</p>
+                    {event.summary ? (
+                      <p className="mt-1 text-sm leading-relaxed text-slate-700">{event.summary}</p>
+                    ) : null}
                     {event.metadata && Object.keys(event.metadata).length ? (
                       <dl className="mt-2 flex flex-wrap gap-1.5">
                         {Object.entries(event.metadata).map(([key, value]) => (
@@ -104,12 +132,26 @@ export function AuditPanel({ dealId }: { dealId: string }) {
               ))}
             </ol>
           )}
+
+          {live && onRefresh ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={refreshing}
+                className="text-xs font-semibold text-slate-600 underline underline-offset-2 hover:text-slate-900 disabled:opacity-50"
+              >
+                {refreshing ? "Refreshing…" : "Refresh timeline from the API"}
+              </button>
+            </div>
+          ) : null}
         </CardBody>
       </Card>
 
       <p className="text-xs leading-relaxed text-slate-500">
-        Audit events never include the counterparty mandate, limits, targets, or forbidden terms. Live mode shows no
-        timeline until the backend exposes an authenticated audit feed.
+        {live
+          ? "Events include only your role's sanitized view of the payload. Private mandate limits are masked on the server."
+          : "Audit events never include the counterparty mandate, limits, targets, or forbidden terms."}
       </p>
     </div>
   );
