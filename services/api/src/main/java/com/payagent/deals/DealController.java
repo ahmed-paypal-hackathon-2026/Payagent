@@ -5,12 +5,11 @@ import com.payagent.ai.negotiation.StructuredTermsValidator;
 import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.StructuredTermsDTO;
 import com.payagent.settlement.IdempotencyService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
 
@@ -35,10 +34,20 @@ public class DealController {
     @PostMapping
     public ResponseEntity<Map<String, String>> createDeal(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = userIdAttr;
+        if (userId == null && principal != null) {
+            try {
+                userId = UUID.fromString(principal.getName());
+            } catch (Exception ignored) {}
+        }
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        final UUID finalUserId = userId;
         String route = "/api/v1/deals";
-        String payload = userId.toString();
+        String payload = finalUserId.toString();
         @SuppressWarnings("unchecked")
         Class<Map<String,String>> cls = (Class<Map<String,String>>)(Class<?>)Map.class;
         return idempotencyService.execute(
@@ -48,7 +57,7 @@ public class DealController {
                 payload,
                 cls,
                 () -> {
-                    Deal deal = dealService.createDeal(userId, null);
+                    Deal deal = dealService.createDeal(finalUserId, null);
                     dealService.setStatus(deal.getId(), DealStatus.ACTIVE_NEGOTIATION);
                     return ResponseEntity.ok(Map.of("dealId", deal.getId().toString()));
                 }
@@ -57,24 +66,22 @@ public class DealController {
 
     @PostMapping("/intake")
     public ResponseEntity<Map<String, Object>> intake(
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal,
             @RequestBody IntakeRequest req) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = userIdAttr;
+        if (userId == null && principal != null) {
+            try {
+                userId = UUID.fromString(principal.getName());
+            } catch (Exception ignored) {}
+        }
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         StructuredTermsDTO terms = intakeExtractionService.extractDealIntake(req.rawPrompt(), req.currency() == null ? "USD" : req.currency());
         termsValidator.validate(terms);
-        Deal deal = dealService.createDeal(userId, null);
-        // generate invite token
         String inviteToken = UUID.randomUUID().toString();
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(inviteToken.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            String hashHex = HexFormat.of().formatHex(hash);
-            deal.setInviteTokenHash(hashHex);
-            dealRepository.save(deal);
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to generate invite token hash", e);
-        }
-        dealService.setStatus(deal.getId(), DealStatus.ACTIVE_NEGOTIATION);
+        Deal deal = dealService.createDealWithInvite(userId, inviteToken);
         Map<String, Object> body = Map.of(
                 "dealId", deal.getId().toString(),
                 "terms", terms,
@@ -88,34 +95,39 @@ public class DealController {
             @PathVariable("id") UUID dealId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody JoinRequest req,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = userIdAttr;
+        if (userId == null && principal != null) {
+            try {
+                userId = UUID.fromString(principal.getName());
+            } catch (Exception ignored) {}
+        }
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        final UUID finalUserId = userId;
+        final UUID finalDealId = dealId;
         String route = "/api/v1/deals/" + dealId + "/join";
         return idempotencyService.execute(
                 idempotencyKey,
                 route,
-                dealId,
+                finalDealId,
                 req,
                 Void.class,
                 () -> {
-                    Deal deal = dealService.getDeal(dealId);
-                    if (deal.getBuyerUserId().equals(userId)) {
-                        throw new IllegalArgumentException("Buyer cannot join own deal");
+                    try {
+                        dealService.joinDeal(finalDealId, finalUserId, req.inviteToken());
+                        return ResponseEntity.ok().build();
+                    } catch (IllegalArgumentException e) {
+                        return ResponseEntity.badRequest().build();
+                    } catch (SecurityException e) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    } catch (IllegalStateException e) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT).build();
                     }
-                    deal.setSellerUserId(userId);
-                    // Persist via repository - simplified
-                    dealService.setStatus(dealId, DealStatus.ACTIVE_NEGOTIATION);
-                    return ResponseEntity.ok().build();
                 }
         );
-    }
-
-    private UUID resolveUserId(Principal principal) {
-        try {
-            return UUID.fromString(principal.getName());
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid principal");
-        }
     }
 
     public record JoinRequest(String inviteToken) {}

@@ -27,6 +27,16 @@ public class DealService {
     }
 
     /**
+     * Loads the deal with a pessimistic write lock to serialize per-deal mutations
+     * (e.g. mandate/agreement version allocation, dual-consent acceptance).
+     */
+    @Transactional
+    public Deal getDealForUpdate(UUID dealId) {
+        return repository.findByIdForUpdate(dealId)
+                .orElseThrow(() -> new IllegalArgumentException("Deal not found: " + dealId));
+    }
+
+    /**
      * Returns the party role of the given user on the deal, or null if the user is not a participant.
      * Server-derived only; never trust a client-supplied role.
      */
@@ -39,6 +49,7 @@ public class DealService {
     /**
      * Verifies deal membership and returns the role; throws if the user is not a participant.
      */
+    @Transactional(readOnly = true)
     public PartyRole requireMembership(UUID dealId, UUID userId) {
         PartyRole role = partyRoleOf(dealId, userId);
         if (role == null) {
@@ -74,17 +85,22 @@ public class DealService {
         if (inviteToken == null || inviteToken.isBlank()) {
             throw new IllegalArgumentException("Invite token is required");
         }
-        Deal deal = getDeal(dealId);
+        Deal deal = repository.findByIdForUpdate(dealId)
+                .orElseThrow(() -> new IllegalArgumentException("Deal not found: " + dealId));
         if (userId.equals(deal.getBuyerUserId())) {
             throw new SecurityException("Creator cannot join as seller");
         }
         String tokenHash = Sha256Hasher.hash(inviteToken.getBytes(StandardCharsets.UTF_8));
         String storedHash = deal.getInviteTokenHash();
         if (storedHash == null || !storedHash.equalsIgnoreCase(tokenHash)) {
-            throw new SecurityException("Invalid invitation token");
+            throw new IllegalArgumentException("Invalid invitation token");
         }
         if (deal.getSellerUserId() != null) {
-            throw new IllegalStateException("Seller already assigned and cannot be replaced");
+            if (!deal.getSellerUserId().equals(userId)) {
+                throw new IllegalStateException("Seller already assigned and cannot be replaced");
+            }
+            // Idempotent: seller already assigned to same user
+            return deal;
         }
         deal.setSellerUserId(userId);
         return repository.save(deal);

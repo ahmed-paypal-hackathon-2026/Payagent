@@ -28,8 +28,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final boolean testProfile;
 
     public JwtAuthFilter(JwtTokenProvider jwtTokenProvider, UserDetailsServiceImpl userDetailsService,
-                         UserRepository userRepository,
-                         Environment environment) {
+                          UserRepository userRepository,
+                          Environment environment) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.userDetailsService = userDetailsService;
         this.userRepository = userRepository;

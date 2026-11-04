@@ -8,8 +8,8 @@ import org.hibernate.type.SqlTypes;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-// @Entity disabled to avoid duplicate mapping with mandates.Offer
-// @Table(name = "offers")
+@Entity
+@Table(name = "offers")
 public class Offer {
 
     @Id

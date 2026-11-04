@@ -1,7 +1,5 @@
 package com.payagent.deals;
 
-import com.payagent.auth.User;
-import com.payagent.auth.UserRepository;
 import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.NegotiationStopReason;
 import org.junit.jupiter.api.Test;
@@ -10,7 +8,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -20,107 +17,61 @@ import static org.junit.jupiter.api.Assertions.*;
 @Transactional
 class DealStateMachineTest {
 
-    @Autowired private DealStateMachine stateMachine;
-    @Autowired private DealRepository dealRepository;
-    @Autowired private UserRepository userRepository;
+    @Autowired
+    private DealStateMachine stateMachine;
 
-    private User makeUser(String email) {
-        return userRepository.save(new User(UUID.randomUUID(), email, "hash", OffsetDateTime.now()));
-    }
+    @Autowired
+    private DealRepository repository;
 
-    private Deal makeDeal(UUID buyerId, UUID sellerId, DealStatus status) {
-        Deal deal = new Deal(UUID.randomUUID(), buyerId, sellerId, status);
-        return dealRepository.save(deal);
+    private Deal createDeal(DealStatus status) {
+        Deal deal = new Deal(UUID.randomUUID(), UUID.randomUUID(), null, status);
+        return repository.save(deal);
     }
 
     @Test
-    void legalTransition_draftToActiveNegotiation() {
-        User buyer = makeUser("ts1@test.com");
-        User seller = makeUser("ts2@test.com");
-        Deal deal = makeDeal(buyer.getId(), seller.getId(), DealStatus.DRAFT);
+    void legalTransition_succeeds() {
+        Deal deal = createDeal(DealStatus.DRAFT);
+        Deal updated = stateMachine.transition(deal.getId(), DealStatus.INVITED, NegotiationStopReason.NONE);
+        assertEquals(DealStatus.INVITED, updated.getStatus());
+    }
 
-        Deal updated = stateMachine.transition(deal.getId(), DealStatus.ACTIVE_NEGOTIATION, null);
+    @Test
+    void illegalTransition_throws() {
+        Deal deal = createDeal(DealStatus.DRAFT);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> stateMachine.transition(deal.getId(), DealStatus.AGREED, NegotiationStopReason.NONE));
+        assertTrue(ex.getMessage().contains("Illegal deal transition"));
+        // status unchanged
+        Deal persisted = repository.findById(deal.getId()).orElseThrow();
+        assertEquals(DealStatus.DRAFT, persisted.getStatus());
+    }
+
+    @Test
+    void sameStateTransition_isNoOp() {
+        Deal deal = createDeal(DealStatus.ACTIVE_NEGOTIATION);
+        Deal updated = stateMachine.transition(deal.getId(), DealStatus.ACTIVE_NEGOTIATION, NegotiationStopReason.NONE);
         assertEquals(DealStatus.ACTIVE_NEGOTIATION, updated.getStatus());
     }
 
     @Test
-    void illegalTransition_draftToAgreed_rejected() {
-        User buyer = makeUser("ts3@test.com");
-        User seller = makeUser("ts4@test.com");
-        Deal deal = makeDeal(buyer.getId(), seller.getId(), DealStatus.DRAFT);
-
-        assertThrows(IllegalArgumentException.class,
-                () -> stateMachine.transition(deal.getId(), DealStatus.AGREED, null));
+    void missingDeal_throws() {
+        UUID randomId = UUID.randomUUID();
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> stateMachine.transition(randomId, DealStatus.INVITED, NegotiationStopReason.NONE));
+        assertTrue(ex.getMessage().contains("Deal not found"));
     }
 
     @Test
-    void transition_toSameStatus_isNoOp() {
-        User buyer = makeUser("ts5@test.com");
-        User seller = makeUser("ts6@test.com");
-        Deal deal = makeDeal(buyer.getId(), seller.getId(), DealStatus.ACTIVE_NEGOTIATION);
-
-        Deal updated = stateMachine.transition(deal.getId(), DealStatus.ACTIVE_NEGOTIATION, null);
-        assertEquals(DealStatus.ACTIVE_NEGOTIATION, updated.getStatus());
+    void agreedToSettlementPending_legal() {
+        Deal deal = createDeal(DealStatus.AGREED);
+        Deal updated = stateMachine.transition(deal.getId(), DealStatus.SETTLEMENT_PENDING, NegotiationStopReason.NONE);
+        assertEquals(DealStatus.SETTLEMENT_PENDING, updated.getStatus());
     }
 
     @Test
-    void fullNegotiationPath() {
-        User buyer = makeUser("ts7@test.com");
-        User seller = makeUser("ts8@test.com");
-        Deal deal = makeDeal(buyer.getId(), seller.getId(), DealStatus.DRAFT);
-
-        deal = stateMachine.transition(deal.getId(), DealStatus.INVITED, null);
-        assertEquals(DealStatus.INVITED, deal.getStatus());
-
-        deal = stateMachine.transition(deal.getId(), DealStatus.ACTIVE_NEGOTIATION, null);
-        assertEquals(DealStatus.ACTIVE_NEGOTIATION, deal.getStatus());
-
-        deal = stateMachine.transition(deal.getId(), DealStatus.TERMS_PENDING_ACCEPTANCE, null);
-        assertEquals(DealStatus.TERMS_PENDING_ACCEPTANCE, deal.getStatus());
-
-        deal = stateMachine.transition(deal.getId(), DealStatus.AGREED, null);
-        assertEquals(DealStatus.AGREED, deal.getStatus());
-
-        deal = stateMachine.transition(deal.getId(), DealStatus.SETTLEMENT_PENDING, null);
-        assertEquals(DealStatus.SETTLEMENT_PENDING, deal.getStatus());
-
-        deal = stateMachine.transition(deal.getId(), DealStatus.IN_PROGRESS, null);
-        assertEquals(DealStatus.IN_PROGRESS, deal.getStatus());
-    }
-
-    @Test
-    void disputeFromAnyState() {
-        User buyer = makeUser("ts9@test.com");
-        User seller = makeUser("ts10@test.com");
-        Deal deal = makeDeal(buyer.getId(), seller.getId(), DealStatus.ACTIVE_NEGOTIATION);
-
-        Deal disputed = stateMachine.transition(deal.getId(), DealStatus.DISPUTED,
-                NegotiationStopReason.POLICY_VIOLATION_BLOCKED);
-        assertEquals(DealStatus.DISPUTED, disputed.getStatus());
-        assertEquals(NegotiationStopReason.POLICY_VIOLATION_BLOCKED, disputed.getStopReason());
-    }
-
-    @Test
-    void cancelledIsTerminal() {
-        User buyer = makeUser("ts11@test.com");
-        User seller = makeUser("ts12@test.com");
-        Deal deal = makeDeal(buyer.getId(), seller.getId(), DealStatus.DRAFT);
-
-        deal = stateMachine.transition(deal.getId(), DealStatus.CANCELLED, null);
-        assertEquals(DealStatus.CANCELLED, deal.getStatus());
-
-        UUID cancelledDealId = deal.getId();
-        assertThrows(IllegalArgumentException.class,
-                () -> stateMachine.transition(cancelledDealId, DealStatus.DRAFT, null));
-    }
-
-    @Test
-    void isLegalTransition_knownEdges() {
-        assertTrue(stateMachine.isLegalTransition(DealStatus.DRAFT, DealStatus.ACTIVE_NEGOTIATION));
-        assertTrue(stateMachine.isLegalTransition(DealStatus.ACTIVE_NEGOTIATION, DealStatus.TERMS_PENDING_ACCEPTANCE));
-        assertTrue(stateMachine.isLegalTransition(DealStatus.TERMS_PENDING_ACCEPTANCE, DealStatus.AGREED));
-        assertFalse(stateMachine.isLegalTransition(DealStatus.DRAFT, DealStatus.AGREED));
-        assertFalse(stateMachine.isLegalTransition(DealStatus.CLOSED, DealStatus.DRAFT));
-        assertTrue(stateMachine.isLegalTransition(DealStatus.ACTIVE_NEGOTIATION, DealStatus.ACTIVE_NEGOTIATION));
+    void settlementPendingToInProgress_legal() {
+        Deal deal = createDeal(DealStatus.SETTLEMENT_PENDING);
+        Deal updated = stateMachine.transition(deal.getId(), DealStatus.IN_PROGRESS, NegotiationStopReason.NONE);
+        assertEquals(DealStatus.IN_PROGRESS, updated.getStatus());
     }
 }

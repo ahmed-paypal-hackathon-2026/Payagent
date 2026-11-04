@@ -1,75 +1,79 @@
 package com.payagent.agreements;
 
 import com.payagent.common.contracts.AgreementSnapshotDTO;
-import com.payagent.deals.DealService;
-import org.springframework.http.HttpStatus;
+import com.payagent.common.contracts.StructuredTermsDTO;
+import com.payagent.settlement.IdempotencyService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/deals/{dealId}")
+@RequestMapping("/api/v1/deals/{id}/agreements")
 public class AgreementController {
 
-    private final AgreementService service;
-    private final DealService dealService;
+    private final AgreementService agreementService;
+    private final com.payagent.deals.DealService dealService;
+    private final IdempotencyService idempotencyService;
 
-    public AgreementController(AgreementService service, DealService dealService) {
-        this.service = service;
+    public AgreementController(AgreementService agreementService, com.payagent.deals.DealService dealService, IdempotencyService idempotencyService) {
+        this.agreementService = agreementService;
         this.dealService = dealService;
+        this.idempotencyService = idempotencyService;
     }
 
-    @PostMapping("/agreements")
+    @PostMapping("/propose")
     public ResponseEntity<AgreementSnapshotDTO> proposeAgreement(
-            @PathVariable UUID dealId,
-            @RequestBody com.payagent.common.contracts.StructuredTermsDTO terms,
-            @RequestAttribute(value = "userId", required = false) UUID userId) {
-        if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-        try {
-            dealService.requireMembership(dealId, userId);
-        } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
-        try {
-            AgreementSnapshotDTO snapshot = service.proposeAgreement(dealId, terms);
-            return ResponseEntity.status(HttpStatus.CREATED).body(snapshot);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).build();
-        }
+            @PathVariable("id") UUID dealId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody StructuredTermsDTO terms,
+            Principal principal) {
+        UUID userId = resolveUserId(principal);
+        dealService.requireMembership(dealId, userId);
+        String route = "/api/v1/deals/" + dealId + "/agreements/propose";
+        return idempotencyService.execute(
+                idempotencyKey,
+                route,
+                dealId,
+                terms,
+                AgreementSnapshotDTO.class,
+                () -> ResponseEntity.ok(agreementService.proposeAgreement(dealId, terms))
+        );
     }
 
-    @PostMapping("/acceptance")
+    @PostMapping("/{version}/accept")
     public ResponseEntity<AgreementSnapshotDTO> acceptAgreement(
-            @PathVariable UUID dealId,
-            @RequestBody AcceptanceRequest request,
-            @RequestAttribute(value = "userId", required = false) UUID userId) {
+            @PathVariable("id") UUID dealId,
+            @PathVariable("version") int version,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody AcceptRequest request,
+            Principal principal) {
+        UUID userId = resolveUserId(principal);
+        com.payagent.common.contracts.PartyRole role = dealService.requireMembership(dealId, userId);
+        String route = "/api/v1/deals/" + dealId + "/agreements/" + version + "/accept";
+        AcceptPayload payload = new AcceptPayload(version, request.termsHashSha256(), role.name());
+        return idempotencyService.execute(
+                idempotencyKey,
+                route,
+                dealId,
+                payload,
+                AgreementSnapshotDTO.class,
+                () -> ResponseEntity.ok(agreementService.acceptAgreement(dealId, version, request.termsHashSha256(), role.name()))
+        );
+    }
 
-        if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-
-        com.payagent.common.contracts.PartyRole role;
+    private UUID resolveUserId(Principal principal) {
+        // Simplified: principal name is email, map to user id via repository in real implementation
+        // For now, assume principal name is UUID string for testing
         try {
-            role = dealService.requireMembership(dealId, userId);
-        } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
-
-        try {
-            AgreementSnapshotDTO snapshot = service.acceptAgreement(
-                    dealId, request.agreementVersion(), request.termsHashSha256(), role.name());
-            return ResponseEntity.ok(snapshot);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+            return UUID.fromString(principal.getName());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid principal");
         }
     }
 
-    public record AcceptanceRequest(int agreementVersion, String termsHashSha256) {}
+    public record AcceptRequest(String termsHashSha256) {}
+    public record AcceptPayload(int version, String termsHashSha256, String role) {}
 }

@@ -88,7 +88,7 @@ class DealServiceTest {
         deal.setInviteTokenHash(hash);
         dealRepository.save(deal);
 
-        assertThrows(SecurityException.class, () ->
+        assertThrows(IllegalArgumentException.class, () ->
                 dealService.joinDeal(deal.getId(), seller.getId(), "wrong-token"));
         // Ensure seller not assigned
         Deal after = dealService.getDeal(deal.getId());

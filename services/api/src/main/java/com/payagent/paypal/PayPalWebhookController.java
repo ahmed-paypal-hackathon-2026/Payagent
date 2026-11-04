@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/v1/notifications")
+@RequestMapping("/api/v1/paypal")
 public class PayPalWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(PayPalWebhookController.class);
@@ -34,7 +34,7 @@ public class PayPalWebhookController {
         this.objectMapper = objectMapper;
     }
 
-    @PostMapping(value = "/verify-webhook-signature", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/webhooks", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, String>> handleWebhook(
             @RequestHeader(value = "PAYPAL-AUTH-ALGO", required = false) String authAlgo,
             @RequestHeader(value = "PAYPAL-CERT-URL", required = false) String certUrl,
@@ -69,8 +69,14 @@ public class PayPalWebhookController {
                     .body(Map.of("error", "INVALID_SIGNATURE", "message", "Webhook signature verification failed"));
         }
 
-        String eventId = eventNode.has("id") ? eventNode.get("id").asText() : transmissionId;
-        String eventType = eventNode.has("event_type") ? eventNode.get("event_type").asText() : "UNKNOWN";
+        String eventId = eventNode.hasNonNull("id") ? eventNode.get("id").asText() : transmissionId;
+        if (eventId == null || eventId.isBlank()) {
+            log.warn("Rejected PayPal webhook without an event id or transmission id");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "MISSING_EVENT_ID", "message", "Webhook event id is required"));
+        }
+
+        String eventType = eventNode.hasNonNull("event_type") ? eventNode.get("event_type").asText() : "UNKNOWN";
         JsonNode resourceNode = eventNode.get("resource");
         String resourceId = resourceNode != null && resourceNode.has("id") ? resourceNode.get("id").asText() : null;
 

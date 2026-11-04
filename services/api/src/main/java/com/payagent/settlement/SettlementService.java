@@ -69,6 +69,20 @@ public class SettlementService {
             throw new SettlementConflictException("Cannot initiate settlement: deal " + dealId + " is in " + currentStatus + " status, required AGREED");
         }
 
+        Optional<InvoiceEntity> existingInvoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
+        if (existingInvoice.isPresent()
+                && existingInvoice.get().getPaypalInvoiceId() != null
+                && existingInvoice.get().getLifecycleStatus() != InvoiceLifecycleStatus.CANCELLED) {
+            Optional<PaymentEntity> existingPayment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
+            log.info("Settlement already initiated for deal {}. Returning existing state instead of creating duplicate invoices.", dealId);
+            return assembleStateDTO(
+                    dealId,
+                    existingInvoice.get().getAgreementVersion(),
+                    existingInvoice.get(),
+                    existingPayment.orElse(null)
+            );
+        }
+
         AgreementSnapshotDTO agreement = dealPort.getAgreedAgreement(dealId);
         var canonicalTerms = agreement.canonicalTerms();
 
@@ -167,6 +181,19 @@ public class SettlementService {
         PaymentEntity payment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)
                 .orElseThrow(() -> new SettlementNotFoundException("Payment record not found for deal " + dealId));
 
+        // Replays must not create a second authorization hold.
+        if (payment.getLifecycleStatus() == PaymentLifecycleStatus.AUTHORIZED
+                || payment.getLifecycleStatus() == PaymentLifecycleStatus.COMPLETED) {
+            InvoiceEntity invoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
+            return assembleStateDTO(dealId, payment.getAgreementVersion(), invoice, payment);
+        }
+
+        if (payment.getLifecycleStatus() != PaymentLifecycleStatus.ORDER_CREATED
+                && payment.getLifecycleStatus() != PaymentLifecycleStatus.UNKNOWN) {
+            throw new SettlementConflictException("Cannot authorize: payment is in status "
+                    + payment.getLifecycleStatus() + " (expected ORDER_CREATED)");
+        }
+
         String orderId = paypalOrderId != null && !paypalOrderId.isBlank() ? paypalOrderId : payment.getPaypalOrderId();
         if (orderId == null || orderId.isBlank()) {
             throw new SettlementConflictException("No PayPal order ID available for authorization on deal " + dealId);
@@ -212,6 +239,16 @@ public class SettlementService {
 
         Object lock = captureLocks.computeIfAbsent(dealId, k -> new Object());
         synchronized (lock) {
+            // Re-check after acquiring the lock. The DB row lock also serializes this
+            // against Member E's dispute transition, closing the capture/dispute race.
+            DealStatus lockedStatus = dealPort.lockDealAndGetStatus(dealId);
+            if (lockedStatus == DealStatus.DISPUTED
+                    || dealPort.hasOpenDispute(dealId)
+                    || dealPort.isDealDisputed(dealId)) {
+                log.warn("Capture blocked after lock: deal {} is in DISPUTED status", dealId);
+                throw new SettlementConflictException("Capture blocked: deal is in DISPUTED status");
+            }
+
             PaymentEntity payment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)
                     .orElseThrow(() -> new SettlementNotFoundException("Payment record not found for deal " + dealId));
 
@@ -219,6 +256,11 @@ public class SettlementService {
                 log.info("Payment for deal {} is already completed. Preventing double capture.", dealId);
                 InvoiceEntity invoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
                 return assembleStateDTO(dealId, payment.getAgreementVersion(), invoice, payment);
+            }
+
+            if (lockedStatus != DealStatus.DELIVERABLES_SUBMITTED) {
+                throw new SettlementConflictException("Cannot accept deliverables: deal is in "
+                        + lockedStatus + " status, required DELIVERABLES_SUBMITTED");
             }
 
             if (payment.getLifecycleStatus() != PaymentLifecycleStatus.AUTHORIZED || payment.getPaypalAuthorizationId() == null) {
@@ -238,43 +280,54 @@ public class SettlementService {
                     capRequestId
             );
 
+            PaymentLifecycleStatus captureStatus = orderService.mapCaptureStatus(capture.status());
+            if (captureStatus == null) {
+                captureStatus = PaymentLifecycleStatus.UNKNOWN;
+            }
+
             payment.setPaypalCaptureId(capture.id());
-            payment.setLifecycleStatus(PaymentLifecycleStatus.COMPLETED);
+            payment.setLifecycleStatus(captureStatus);
             payment.setUpdatedAt(Instant.now());
             paymentRepository.save(payment);
 
-            auditEventPort.recordEvent(dealId, "PAYMENT_CAPTURED", Map.of(
+            auditEventPort.recordEvent(dealId, "PAYMENT_CAPTURE_" + captureStatus.name(), Map.of(
                     "paypalCaptureId", capture.id(),
                     "amountMinorUnits", payment.getAmountMinor(),
                     "evidenceVersion", evidenceVersion
             ));
 
-            // Record payment on invoice
             InvoiceEntity invoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
-            if (invoice != null && invoice.getPaypalInvoiceId() != null) {
-                try {
-                    String invPayRequestId = idempotencyKey != null ? idempotencyKey + "-invpay" : UUID.randomUUID().toString();
-                    invoiceService.recordPayment(
-                            invoice.getPaypalInvoiceId(),
-                            payment.getAmountMinor(),
-                            payment.getCurrency(),
-                            "Settlement capture completed for evidence v" + evidenceVersion,
-                            invPayRequestId
-                    );
-                    invoice.setLifecycleStatus(InvoiceLifecycleStatus.PAID);
-                    invoice.setUpdatedAt(Instant.now());
-                    invoiceRepository.save(invoice);
 
-                    auditEventPort.recordEvent(dealId, "INVOICE_PAID", Map.of(
-                            "paypalInvoiceId", invoice.getPaypalInvoiceId()
-                    ));
-                } catch (Exception e) {
-                    log.error("Failed to record payment on invoice {}: {}", invoice.getPaypalInvoiceId(), e.getMessage());
+            if (captureStatus == PaymentLifecycleStatus.COMPLETED) {
+                // Record payment on invoice
+                if (invoice != null && invoice.getPaypalInvoiceId() != null) {
+                    try {
+                        String invPayRequestId = idempotencyKey != null ? idempotencyKey + "-invpay" : UUID.randomUUID().toString();
+                        invoiceService.recordPayment(
+                                invoice.getPaypalInvoiceId(),
+                                payment.getAmountMinor(),
+                                payment.getCurrency(),
+                                "Settlement capture completed for evidence v" + evidenceVersion,
+                                invPayRequestId
+                        );
+                        invoice.setLifecycleStatus(InvoiceLifecycleStatus.PAID);
+                        invoice.setUpdatedAt(Instant.now());
+                        invoiceRepository.save(invoice);
+
+                        auditEventPort.recordEvent(dealId, "INVOICE_PAID", Map.of(
+                                "paypalInvoiceId", invoice.getPaypalInvoiceId()
+                        ));
+                    } catch (Exception e) {
+                        log.error("Failed to record payment on invoice {}: {}", invoice.getPaypalInvoiceId(), e.getMessage());
+                    }
                 }
-            }
 
-            dealPort.transitionDealStatus(dealId, DealStatus.ACCEPTED);
-            dealPort.transitionDealStatus(dealId, DealStatus.CLOSED);
+                dealPort.transitionDealStatus(dealId, DealStatus.ACCEPTED);
+                dealPort.transitionDealStatus(dealId, DealStatus.CLOSED);
+            } else {
+                log.warn("Capture for deal {} returned status {}. Settlement remains in progress pending webhook reconciliation.",
+                        dealId, captureStatus);
+            }
 
             return assembleStateDTO(dealId, payment.getAgreementVersion(), invoice, payment);
         }
@@ -285,6 +338,14 @@ public class SettlementService {
         dealPort.assertParty(dealId, callerEmail);
 
         PaymentEntity payment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
+        InvoiceEntity invoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
+
+        // A completed capture can only be reversed through a refund/dispute resolution,
+        // never by voiding an authorization that no longer exists.
+        if (payment != null && payment.getLifecycleStatus() == PaymentLifecycleStatus.COMPLETED) {
+            throw new SettlementConflictException("Cannot void settlement: payment is already captured");
+        }
+
         if (payment != null && payment.getLifecycleStatus() == PaymentLifecycleStatus.AUTHORIZED
                 && payment.getPaypalAuthorizationId() != null) {
             String voidRequestId = idempotencyKey != null ? idempotencyKey + "-void" : UUID.randomUUID().toString();
@@ -299,8 +360,9 @@ public class SettlementService {
             ));
         }
 
-        InvoiceEntity invoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
-        if (invoice != null && (invoice.getLifecycleStatus() == InvoiceLifecycleStatus.DRAFT
+        if (invoice != null
+                && invoice.getPaypalInvoiceId() != null
+                && (invoice.getLifecycleStatus() == InvoiceLifecycleStatus.DRAFT
                 || invoice.getLifecycleStatus() == InvoiceLifecycleStatus.SENT)) {
             String cancelRequestId = idempotencyKey != null ? idempotencyKey + "-cancel" : UUID.randomUUID().toString();
             invoiceService.cancelInvoice(invoice.getPaypalInvoiceId(), reason, cancelRequestId);
@@ -312,6 +374,14 @@ public class SettlementService {
                     "paypalInvoiceId", invoice.getPaypalInvoiceId(),
                     "reason", reason != null ? reason : "Cancelled"
             ));
+        }
+
+        DealStatus dealStatus = dealPort.getDealStatus(dealId);
+        if (dealStatus != DealStatus.DISPUTED
+                && dealStatus != DealStatus.ACCEPTED
+                && dealStatus != DealStatus.CLOSED
+                && dealStatus != DealStatus.CANCELLED) {
+            dealPort.transitionDealStatus(dealId, DealStatus.CANCELLED);
         }
 
         int version = payment != null ? payment.getAgreementVersion() : (invoice != null ? invoice.getAgreementVersion() : 1);

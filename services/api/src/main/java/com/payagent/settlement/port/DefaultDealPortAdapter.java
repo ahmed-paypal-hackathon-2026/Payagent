@@ -109,6 +109,23 @@ public class DefaultDealPortAdapter implements DealPort {
     }
 
     @Override
+    public DealStatus lockDealAndGetStatus(UUID dealId) {
+        String sql = "SELECT status FROM deals WHERE id = ? FOR UPDATE";
+        List<String> statuses = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("status"), dealId);
+        if (statuses.isEmpty()) {
+            throw new SettlementNotFoundException("Deal not found: " + dealId);
+        }
+        return DealStatus.valueOf(statuses.get(0));
+    }
+
+    @Override
+    public boolean hasOpenDispute(UUID dealId) {
+        String sql = "SELECT COUNT(*) FROM disputes WHERE deal_id = ? AND status IN ('OPEN', 'UNDER_PARTIES_REVIEW')";
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, dealId);
+        return count != null && count > 0;
+    }
+
+    @Override
     public boolean isDealDisputed(UUID dealId) {
         try {
             DealStatus status = getDealStatus(dealId);
@@ -116,12 +133,10 @@ public class DefaultDealPortAdapter implements DealPort {
                 return true;
             }
         } catch (Exception e) {
-            // ignore if checking disputes table directly
+            // Fall through to the disputes table check.
         }
 
-        String sql = "SELECT COUNT(*) FROM disputes WHERE deal_id = ? AND status IN ('OPEN', 'UNDER_PARTIES_REVIEW')";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, dealId);
-        return count != null && count > 0;
+        return hasOpenDispute(dealId);
     }
 
     @Override

@@ -16,6 +16,14 @@ public interface DealPort {
 
     void transitionDealStatus(UUID dealId, DealStatus targetStatus);
 
+    /**
+     * Acquires a row-level lock on the deal and returns its current status.
+     * Used to serialize capture against concurrent dispute creation.
+     */
+    DealStatus lockDealAndGetStatus(UUID dealId);
+
+    boolean hasOpenDispute(UUID dealId);
+
     boolean isDealDisputed(UUID dealId);
 
     String getBuyerEmail(UUID dealId);
