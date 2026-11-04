@@ -12,6 +12,14 @@ services:
         fromDatabase:
           name: payagent-db
           property: connectionString
+      - key: PAYAGENT_DB_USER
+        fromDatabase:
+          name: payagent-db
+          property: username
+      - key: PAYAGENT_DB_PASSWORD
+        fromDatabase:
+          name: payagent-db
+          property: password
       - key: PAYAGENT_JWT_SECRET
         generateValue: true
       - key: PAYPAL_API_BASE_URL

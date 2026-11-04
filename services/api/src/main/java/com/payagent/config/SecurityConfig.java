@@ -100,6 +100,8 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register")
                         .permitAll()
+                        .requestMatchers(HttpMethod.POST, "/v1/notifications/verify-webhook-signature")
+                        .permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/api/**")
                         .permitAll()
                         .anyRequest()

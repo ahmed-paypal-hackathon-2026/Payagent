@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   const useMocks = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
@@ -33,6 +35,14 @@ export default function Home() {
           </dd>
         </div>
       </dl>
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href="/deals/deal-synth-001"
+          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          Open Deal Room (fixtures)
+        </Link>
+      </div>
       <p className="text-sm text-slate-500">
         PayPal: Sandbox only. Never commit credentials. See root <code>README.md</code> and{" "}
         <code>docs/LOCAL_DEVELOPMENT.md</code>.
