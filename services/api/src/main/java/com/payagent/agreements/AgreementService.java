@@ -21,6 +21,8 @@ public class AgreementService {
 
     @Transactional
     public AgreementSnapshotDTO proposeAgreement(UUID dealId, StructuredTermsDTO terms) {
+        dealService.getDealForUpdate(dealId);
+
         String canonicalJson = Rfc8785Canonicalizer.canonicalize(terms);
         byte[] canonicalBytes = Rfc8785Canonicalizer.canonicalBytes(terms);
         String hash = Sha256Hasher.hash(canonicalBytes);
@@ -28,6 +30,11 @@ public class AgreementService {
         Integer nextVersion = repository.findTopByDealIdOrderByVersionDesc(dealId)
                 .map(a -> a.getVersion() + 1)
                 .orElse(1);
+
+        repository.findTopByDealIdOrderByVersionDesc(dealId).ifPresent(old -> {
+            old.clearAcceptances();
+            repository.save(old);
+        });
 
         Agreement agreement = new Agreement(UUID.randomUUID(), dealId, nextVersion, canonicalJson, hash);
         Agreement saved = repository.save(agreement);
@@ -41,8 +48,14 @@ public class AgreementService {
 
     @Transactional
     public AgreementSnapshotDTO acceptAgreement(UUID dealId, int version, String termsHashSha256, String partyRole) {
-        Agreement agreement = repository.findByDealIdAndVersion(dealId, version)
+        Agreement agreement = repository.findByDealIdAndVersionForUpdate(dealId, version)
                 .orElseThrow(() -> new AgreementNotFoundException("Agreement not found"));
+
+        com.payagent.deals.Deal deal = dealService.getDeal(dealId);
+        if (deal.getStatus() != com.payagent.common.contracts.DealStatus.TERMS_PENDING_ACCEPTANCE) {
+            throw new AgreementConflictException(
+                    "Agreement acceptance not allowed in status " + deal.getStatus());
+        }
 
         if (!agreement.getTermsHashSha256().equals(termsHashSha256)) {
             throw new AgreementConflictException("Hash mismatch");
@@ -72,14 +85,18 @@ public class AgreementService {
     }
 
     @Transactional
-    public AgreementSnapshotDTO proposeNewVersion(UUID dealId, StructuredTermsDTO terms) {
-        // Clearing prior acceptances is implicit: a new version row starts with null acceptances.
+    public AgreementSnapshotDTO proposeNewVersion(UUID dealId, StructuredTermsDTO terms) {        // Clearing prior acceptances is implicit: a new version row starts with null acceptances.
         // Explicitly clear on the latest old version for auditability.
         repository.findTopByDealIdOrderByVersionDesc(dealId).ifPresent(old -> {
             old.clearAcceptances();
             repository.save(old);
         });
         return proposeAgreement(dealId, terms);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<AgreementSnapshotDTO> getLatestSnapshot(UUID dealId) {
+        return repository.findTopByDealIdOrderByVersionDesc(dealId).map(this::toSnapshot);
     }
 
     private AgreementSnapshotDTO toSnapshot(Agreement a) {
