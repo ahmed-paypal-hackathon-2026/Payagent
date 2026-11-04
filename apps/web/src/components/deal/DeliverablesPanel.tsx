@@ -1,10 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { DealWorkspaceDTO, DeliverableEvidenceDTO } from "@/types/contracts";
+import type { DealWorkspaceDTO, DeliverableEvidenceDTO, SettlementStateDTO } from "@/types/contracts";
 import { formatBytes, formatDateTime } from "@/lib/format";
-import { useMockData } from "@/providers/MockDataProvider";
-import { useSession } from "@/providers/SessionProvider";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +11,12 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { DisputeStatusBadge } from "./StatusBadges";
+
+export interface DeliverablesActions {
+  uploadEvidence(dealId: string, file: File): Promise<DeliverableEvidenceDTO>;
+  acceptDeliverables(dealId: string, evidenceVersion: number): Promise<SettlementStateDTO>;
+  openDispute(dealId: string, reason: string, resolutionRequest: string): Promise<DealWorkspaceDTO>;
+}
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ["application/pdf", "application/zip", "image/png", "image/jpeg", "text/plain"];
@@ -69,9 +73,16 @@ function EvidenceCard({ evidence, mock }: { evidence: DeliverableEvidenceDTO; mo
   );
 }
 
-export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }) {
-  const { actions } = useMockData();
-  const { mode } = useSession();
+export function DeliverablesPanel({
+  workspace,
+  actions,
+  mode,
+}: {
+  workspace: DealWorkspaceDTO;
+  actions: DeliverablesActions;
+  mode: "mock" | "live";
+}) {
+  const mock = mode === "mock";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -122,7 +133,9 @@ export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }
       const evidence = await actions.uploadEvidence(workspace.dealId, file);
       setFeedback({
         tone: "success",
-        message: `Demo evidence v${evidence.version} recorded. SHA-256 ${evidence.sha256Hash} was computed locally for this rehearsal; the backend would issue the authoritative hash and signed URL in live mode.`,
+        message: mock
+          ? `Demo evidence v${evidence.version} recorded. SHA-256 ${evidence.sha256Hash} was computed locally for this rehearsal; the backend would issue the authoritative hash and signed URL in live mode.`
+          : `The API recorded evidence v${evidence.version}. SHA-256 ${evidence.sha256Hash} is authoritative and the download URL on the card expires in 15 minutes.`,
       });
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -141,7 +154,9 @@ export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }
       await actions.acceptDeliverables(workspace.dealId, latestEvidence.version);
       setFeedback({
         tone: "success",
-        message: `Demo acceptance recorded for evidence v${latestEvidence.version}. Capture and invoice payment were completed by the local engine.`,
+        message: mock
+          ? `Demo acceptance recorded for evidence v${latestEvidence.version}. Capture and invoice payment were completed by the local engine.`
+          : `The API accepted evidence v${latestEvidence.version}. The settlement state below reflects the authoritative invoice and payment status.`,
       });
       setAcceptConfirmed(false);
     } catch (error) {
@@ -158,7 +173,9 @@ export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }
       await actions.openDispute(workspace.dealId, disputeReason, resolutionRequest);
       setFeedback({
         tone: "success",
-        message: "Demo dispute opened. The deal is now DISPUTED and automated capture is frozen.",
+        message: mock
+          ? "Demo dispute opened. The deal is now DISPUTED and automated capture is frozen."
+          : "The API opened the dispute. The deal is DISPUTED and automated capture is frozen until it is resolved.",
       });
       setDisputeReason("");
       setResolutionRequest("");
@@ -200,7 +217,7 @@ export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }
               {[...workspace.evidenceList]
                 .sort((a, b) => b.version - a.version)
                 .map((evidence) => (
-                  <EvidenceCard key={evidence.evidenceId} evidence={evidence} mock={mode === "mock"} />
+                  <EvidenceCard key={evidence.evidenceId} evidence={evidence} mock={mock} />
                 ))}
             </div>
           )}
@@ -244,8 +261,9 @@ export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }
                 Upload evidence
               </Button>
               <p className="text-xs leading-relaxed text-slate-500">
-                Demo mode hashes the file in your browser and labels it as simulated. Live mode never fabricates a hash or
-                URL.
+                {mock
+                  ? "Demo mode hashes the file in your browser and labels it as simulated. Live mode never fabricates a hash or URL."
+                  : "Live mode sends the file to the API, which computes the authoritative SHA-256 and issues a 15-minute signed URL."}
               </p>
             </div>
           </CardBody>
@@ -278,8 +296,9 @@ export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }
                     Accept evidence v{latestEvidence.version} and release capture
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
-                    This demo action marks the invoice paid, completes the payment, and closes the deal locally. In live
-                    mode the success state must come from the backend.
+                    {mock
+                      ? "This demo action marks the invoice paid, completes the payment, and closes the deal locally. In live mode the success state must come from the backend."
+                      : "This calls the acceptance endpoint; the response is the authoritative settlement state showing invoice and payment status."}
                   </p>
                   <label className="mt-3 flex items-start gap-2 text-xs font-medium text-emerald-950">
                     <input
@@ -319,7 +338,11 @@ export function DeliverablesPanel({ workspace }: { workspace: DealWorkspaceDTO }
                     <Field
                       label="Requested resolution"
                       htmlFor="dispute-resolution"
-                      hint="Shared with the dispute workflow; this demo stores it in the audit event."
+                      hint={
+                        mock
+                          ? "Shared with the dispute workflow; this demo stores it in the audit event."
+                          : "Shared with the dispute workflow and stored with the dispute record."
+                      }
                     >
                       <Textarea
                         id="dispute-resolution"

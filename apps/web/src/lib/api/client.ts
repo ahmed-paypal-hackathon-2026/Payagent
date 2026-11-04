@@ -1,6 +1,7 @@
 import type {
   AgreementSnapshotDTO,
   DealWorkspaceDTO,
+  DeliverableEvidenceDTO,
   MandateDTO,
   OfferDTO,
   SettlementStateDTO,
@@ -44,7 +45,27 @@ interface RequestOptions {
   method?: "GET" | "POST";
   token?: string | null;
   body?: unknown;
+  form?: FormData;
   idempotencyKey?: string;
+}
+
+export interface DisputeMutationResult {
+  id: string;
+  dealId: string;
+  status: string;
+  reason: string;
+  resolutionRequest: string | null;
+  openedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface AuditEventApiDTO {
+  id: number | null;
+  dealId: string;
+  seq: number;
+  eventType: string;
+  payload: unknown;
+  createdAt: string;
 }
 
 function idempotencyKey(): string {
@@ -90,12 +111,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
   if (options.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey);
 
+  const payload = options.form ?? (options.body === undefined ? undefined : JSON.stringify(options.body));
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
-      method: options.method ?? "GET",
+      method: options.method ?? (options.form ? "POST" : "GET"),
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: payload,
       cache: "no-store",
     });
   } catch {
@@ -217,6 +240,41 @@ export const api = {
     return request(dealPath(dealId, "/settlement"), { token });
   },
 
+  getDealWorkspace(dealId: string, token: string): Promise<DealWorkspaceDTO> {
+    return request(dealPath(dealId, "/workspace"), { token });
+  },
+
+  getAuditEvents(dealId: string, token: string, afterSeq = 0): Promise<AuditEventApiDTO[]> {
+    return request(dealPath(dealId, `/events?afterSeq=${Number.isInteger(afterSeq) && afterSeq > 0 ? afterSeq : 0}`), {
+      token,
+    });
+  },
+
+  uploadEvidence(dealId: string, token: string, file: File): Promise<DeliverableEvidenceDTO> {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return request(dealPath(dealId, "/evidence"), {
+      method: "POST",
+      token,
+      form,
+      idempotencyKey: idempotencyKey(),
+    });
+  },
+
+  openDispute(
+    dealId: string,
+    token: string,
+    reason: string,
+    resolutionRequest: string | null,
+  ): Promise<DisputeMutationResult> {
+    return request(dealPath(dealId, "/disputes"), {
+      method: "POST",
+      token,
+      idempotencyKey: idempotencyKey(),
+      body: { reason, resolutionRequest: resolutionRequest ?? null },
+    });
+  },
+
   initiateSettlement(dealId: string, token: string): Promise<SettlementStateDTO> {
     return request(dealPath(dealId, "/settlement/initiate"), {
       method: "POST",
@@ -256,14 +314,5 @@ export const api = {
     });
   },
 };
-
-export function workspaceEndpointUnavailable(): never {
-  throw new ApiError(
-    "/api/v1/deals/{id}/workspace",
-    501,
-    "The backend does not expose a deal workspace snapshot endpoint yet.",
-    "Member A owns the workspace assembly route. Until it exists, the browser cannot load offers, agreement history, evidence, or current status in one verified response.",
-  );
-}
 
 export type { DealWorkspaceDTO };

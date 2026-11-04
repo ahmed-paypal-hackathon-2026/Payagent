@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AgreementSnapshotDTO,
   DealStatus,
+  DealWorkspaceDTO,
   MandateDTO,
   OfferDTO,
   PartyRole,
@@ -30,6 +31,108 @@ import { DealStatusBadge, InvoiceStatusBadge, PaymentStatusBadge } from "./Statu
 import { MandateSummary } from "./MandateSummary";
 import { OfferComparison } from "./OfferComparison";
 import { TermsSummary } from "./TermsSummary";
+import { DeliverablesPanel, type DeliverablesActions } from "./DeliverablesPanel";
+import { AuditPanel, type AuditPanelEvent } from "./AuditPanel";
+import { openDealEventStream, type StreamStatus } from "@/lib/api/live-events";
+
+type AuditEventApiDTO = import("@/lib/api/client").AuditEventApiDTO;
+
+function mapAuditEvent(event: AuditEventApiDTO): AuditPanelEvent {
+  const payload =
+    typeof event.payload === "object" && event.payload !== null ? (event.payload as Record<string, unknown>) : {};
+  const metadata: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
+      metadata[key] = value;
+    } else if (typeof value === "object") {
+      metadata[key] = JSON.stringify(value);
+    }
+  }
+  return {
+    dealId: event.dealId,
+    seq: event.seq,
+    type: event.eventType,
+    actorRole: typeof payload.actorRole === "string" ? payload.actorRole : null,
+    summary: "",
+    at: event.createdAt,
+    metadata: Object.keys(metadata).length ? metadata : null,
+  };
+}
+
+function LiveAuditTimeline({ dealId, apiBaseUrl, token }: { dealId: string; apiBaseUrl: string; token: string }) {
+  const [events, setEvents] = useState<AuditPanelEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const raw = await api.getAuditEvents(dealId, token);
+      setEvents(raw.map(mapAuditEvent));
+      setError(null);
+    } catch (caught) {
+      if (caught instanceof ApiError && (caught.status === 404 || caught.status === 405)) {
+        setMissing(true);
+      } else {
+        setError(messageFor(caught));
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [dealId, token]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void refresh(), 20000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  useEffect(() => {
+    const closeStream = openDealEventStream({
+      apiBaseUrl,
+      dealId,
+      token,
+      onEnvelope: (envelope) => {
+        const mapped = mapAuditEvent({ ...envelope, createdAt: envelope.timestamp });
+        setEvents((previous) =>
+          previous.some((event) => event.seq === mapped.seq) ? previous : [...previous, mapped],
+        );
+      },
+      onStatus: setStreamStatus,
+    });
+    return closeStream;
+  }, [apiBaseUrl, dealId, token]);
+
+  if (missing) {
+    return (
+      <Card>
+        <CardHeader
+          title="Audit timeline pending"
+          description="GET /events is not published by this backend yet, so no server timeline is shown. The UI does not invent events."
+        />
+      </Card>
+    );
+  }
+
+  if (error) {
+    return <Alert tone="error">Audit timeline unavailable: {error}</Alert>;
+  }
+
+  return (
+    <AuditPanel
+      events={events}
+      mode="live"
+      streamStatus={streamStatus}
+      refreshing={refreshing}
+      onRefresh={() => void refresh()}
+    />
+  );
+}
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiNetworkError || error instanceof ApiError) return error.message;
@@ -125,6 +228,7 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
   const token = liveSession?.token ?? null;
 
   const [sessionState, setSessionState] = useState<LiveDealSession | null>(null);
+  const [workspace, setWorkspace] = useState<DealWorkspaceDTO | null>(null);
   const [mandate, setMandate] = useState<MandateDTO | null>(null);
   const [settlement, setSettlement] = useState<SettlementStateDTO | null>(null);
   const [agreement, setAgreement] = useState<AgreementSnapshotDTO | null>(null);
@@ -141,9 +245,10 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
 
   const status = useMemo<DealStatus | null>(() => {
     const serverDerived = deriveStatus(agreement, settlement);
-    return serverDerived ?? sessionState?.statusHint ?? null;
-  }, [agreement, sessionState?.statusHint, settlement]);
-  const role: PartyRole | null = mandate?.partyRole ?? sessionState?.roleHint ?? null;
+    return serverDerived ?? workspace?.status ?? sessionState?.statusHint ?? null;
+  }, [agreement, sessionState?.statusHint, settlement, workspace?.status]);
+  const role: PartyRole | null =
+    mandate?.partyRole ?? workspace?.myRole ?? sessionState?.roleHint ?? null;
   const currentAgreement = agreement ?? sessionState?.currentAgreement ?? null;
   const terms = sessionState?.terms ?? currentAgreement?.canonicalTerms ?? offers[offers.length - 1]?.terms;
   const isBuyer = role === "BUYER";
@@ -169,6 +274,29 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
     if (!token) return;
     setLoading(true);
     setLoadError(null);
+
+    let snapshot: DealWorkspaceDTO | null = null;
+    try {
+      snapshot = await api.getDealWorkspace(dealId, token);
+    } catch (caught) {
+      if (!(caught instanceof ApiError) || (caught.status !== 404 && caught.status !== 405)) {
+        setLoadError(messageFor(caught));
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (snapshot) {
+      setWorkspace(snapshot);
+      setMandate(snapshot.myMandate);
+      setSettlement(snapshot.settlement);
+      setAgreement(snapshot.currentAgreement);
+      setOffers(snapshot.offers);
+      updateSession({ roleHint: snapshot.myRole });
+      setLoading(false);
+      return;
+    }
+
     const [mandateResult, settlementResult] = await Promise.allSettled([
       api.getMandate(dealId, token),
       api.getSettlement(dealId, token),
@@ -327,6 +455,35 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
     }
   }
 
+  const liveDeliverablesActions: DeliverablesActions = {
+    uploadEvidence: async (_dealId, file) => {
+      if (!token) throw new Error("Sign in again.");
+      const evidence = await api.uploadEvidence(dealId, token, file);
+      void load();
+      return evidence;
+    },
+    acceptDeliverables: async (_dealId, evidenceVersion) => {
+      if (!token) throw new Error("Sign in again.");
+      const state = await api.acceptDeliverables(dealId, evidenceVersion, token);
+      setSettlement(state);
+      updateSession({ statusHint: state.paymentStatus === "COMPLETED" ? "CLOSED" : "IN_PROGRESS" });
+      void load();
+      return state;
+    },
+    openDispute: async (_dealId, reason, resolutionRequest) => {
+      if (!token) throw new Error("Sign in again.");
+      await api.openDispute(dealId, token, reason, resolutionRequest);
+      try {
+        const next = await api.getDealWorkspace(dealId, token);
+        setWorkspace(next);
+        return next;
+      } catch {
+        if (workspace) return workspace;
+        throw new Error("The dispute was opened, but the workspace could not be refreshed.");
+      }
+    },
+  };
+
   if (!ready) {
     return <Alert tone="info">Loading session…</Alert>;
   }
@@ -350,6 +507,7 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
   }
 
   const pendingForThisDeal = LIVE_CAPABILITIES.filter((item) => item.state === "pending");
+  const allCapabilitiesLive = pendingForThisDeal.length === 0;
 
   return (
     <div className="space-y-4">
@@ -379,12 +537,23 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
         only this API; PayPal Sandbox is reached by the backend.
       </Alert>
 
-      <Alert tone="warning" title="Workspace snapshot endpoint pending">
-        Member A has not published <code className="rounded bg-white/70 px-1">GET /api/v1/deals/{"{id}"}/workspace</code>.
-        This console can show your mandate, settlement state, and actions you perform in this tab. It cannot load offer
-        history, agreement history, evidence, dispute state, or status from the server. Actions stay gated by the
-        server-confirmed state below; when the status is unknown, status-dependent actions are disabled.
-      </Alert>
+      {!workspace ? (
+        <Alert tone="warning" title="Workspace snapshot endpoint pending">
+          Member A has not published <code className="rounded bg-white/70 px-1">GET /api/v1/deals/{"{id}"}/workspace</code>.
+          This console can show your mandate, settlement state, and actions you perform in this tab. It cannot load offer
+          history, agreement history, evidence, dispute state, or status from the server. Actions stay gated by the
+          server-confirmed state below; when the status is unknown, status-dependent actions are disabled.
+        </Alert>
+      ) : null}
+
+      {workspace?.disputeStatus && workspace.disputeStatus !== "NONE" ? (
+        <Alert
+          tone={workspace.status === "DISPUTED" ? "error" : "warning"}
+          title={`Dispute: ${workspace.disputeStatus.replaceAll("_", " ").toLowerCase()}`}
+        >
+          {workspace.disputeReason ?? "See dispute details in the deal record."}
+        </Alert>
+      ) : null}
 
       {loadError ? <Alert tone="error">{loadError}</Alert> : null}
       {feedback ? <Alert tone={feedback.tone}>{feedback.message}</Alert> : null}
@@ -523,8 +692,12 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
           {offers.length ? (
             <Card>
               <CardHeader
-                title="Offers submitted in this tab"
-                description="There is no offer list endpoint yet, so only this session's responses are shown."
+                title={workspace ? "Offer history from the API" : "Offers submitted in this tab"}
+                description={
+                  workspace
+                    ? "Loaded from the server workspace snapshot; new offers submitted here are appended."
+                    : "There is no offer list endpoint yet, so only this session's responses are shown."
+                }
               />
               <CardBody>
                 <OfferComparison offers={offers} myRole={role} />
@@ -682,29 +855,43 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
             </CardBody>
           </Card>
 
-          <Card>
-            <CardHeader
-              title="Actions pending backend routes"
-              description="These are deliberately disabled in live mode. The UI does not fabricate hashes, IDs, or events."
-            />
-            <CardBody>
-              <div className="grid gap-2 md:grid-cols-2">
-                {pendingForThisDeal.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
-                    <div className="flex flex-wrap items-center justify-between gap-1">
-                      <p className="text-xs font-semibold text-amber-950">{item.label}</p>
-                      <Badge tone="warning">{item.owner}</Badge>
+          {workspace ? (
+            <DeliverablesPanel workspace={workspace} actions={liveDeliverablesActions} mode="live" />
+          ) : null}
+
+          <LiveAuditTimeline dealId={dealId} apiBaseUrl={apiBaseUrl} token={liveSession.token} />
+
+          {allCapabilitiesLive ? (
+            <Alert tone="success" title="All live capabilities verified">
+              Every console action above is backed by a real endpoint: negotiation, agreements, settlement, evidence,
+              disputes, audit timeline, and the WebSocket event push. Acceptance and dispute copy claims nothing the API
+              did not confirm.
+            </Alert>
+          ) : (
+            <Card>
+              <CardHeader
+                title="Actions pending backend routes"
+                description="These are deliberately disabled in live mode. The UI does not fabricate hashes, IDs, or events."
+              />
+              <CardBody>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {pendingForThisDeal.map((item) => (
+                    <div key={item.id} className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <p className="text-xs font-semibold text-amber-950">{item.label}</p>
+                        <Badge tone="warning">{item.owner}</Badge>
+                      </div>
+                      <p className="mt-0.5 font-mono text-[10px] text-amber-900/80">{item.endpoint}</p>
                     </div>
-                    <p className="mt-0.5 font-mono text-[10px] text-amber-900/80">{item.endpoint}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 text-xs leading-relaxed text-slate-500">
-                In particular, accepting deliverables is unavailable because there is no evidence-list endpoint to verify a
-                version, and opening a dispute is unavailable because the disputes route is not published.
-              </p>
-            </CardBody>
-          </Card>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                  Deliverable evidence, acceptance, dispute actions, and the audit timeline are wired above; their data
+                  comes from the workspace snapshot and the events endpoint.
+                </p>
+              </CardBody>
+            </Card>
+          )}
         </>
       ) : null}
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { DealStatus, DealWorkspaceDTO } from "@/types/contracts";
 import { cn } from "@/lib/format";
 import { useMockData } from "@/providers/MockDataProvider";
@@ -12,7 +12,7 @@ import { Card, CardBody } from "@/components/ui/Card";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AgreementPanel } from "./AgreementPanel";
-import { AuditPanel } from "./AuditPanel";
+import { AuditPanel, type AuditPanelEvent } from "./AuditPanel";
 import { DeliverablesPanel } from "./DeliverablesPanel";
 import { NegotiationPanel } from "./NegotiationPanel";
 import { SettlementPanel } from "./SettlementPanel";
@@ -125,9 +125,13 @@ function nextAction(workspace: DealWorkspaceDTO): { title: string; body: string;
 }
 
 export function MockDealWorkspace({ dealId }: { dealId: string }) {
-  const { db, currentUser, users, getWorkspace, setCurrentUserId } = useMockData();
+  const { db, currentUser, users, getWorkspace, setCurrentUserId, actions } = useMockData();
   const workspace = getWorkspace(dealId);
   const deal = db.deals[dealId];
+  const mockAuditEvents = useMemo<AuditPanelEvent[]>(
+    () => (db.deals[dealId]?.auditEvents ?? []).map((event) => ({ ...event, metadata: event.metadata ?? null })),
+    [db, dealId],
+  );
   const [tab, setTab] = useState<TabKey>(() => initialTab(workspace?.status ?? "DRAFT"));
 
   if (!deal) {
@@ -279,8 +283,10 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
         {tab === "settlement" ? (
           <SettlementPanel workspace={workspace} onOpenDeliverables={() => setTab("deliverables")} />
         ) : null}
-        {tab === "deliverables" ? <DeliverablesPanel workspace={workspace} /> : null}
-        {tab === "audit" ? <AuditPanel dealId={workspace.dealId} /> : null}
+        {tab === "deliverables" ? (
+          <DeliverablesPanel workspace={workspace} actions={actions} mode="mock" />
+        ) : null}
+        {tab === "audit" ? <AuditPanel events={mockAuditEvents} mode="mock" /> : null}
       </div>
 
       <p className="text-xs leading-relaxed text-slate-500">
