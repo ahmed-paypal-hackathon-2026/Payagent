@@ -56,12 +56,14 @@ class OfferControllerTest {
     }
 
     private Deal makeDeal(User buyer, User seller) {
-        return dealService.createDeal(buyer.getId(), seller.getId());
+        Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
+        dealService.setStatus(deal.getId(), com.payagent.common.contracts.DealStatus.ACTIVE_NEGOTIATION);
+        return deal;
     }
 
     private UserDetails userDetails(User u) {
         return new org.springframework.security.core.userdetails.User(
-                u.getEmail(), "password", List.of());
+                u.getId().toString(), "password", List.of());
     }
 
     private String offerJson(UUID dealId, long price, int delivery, int revisions, String message) {
@@ -89,20 +91,19 @@ class OfferControllerTest {
         UUID dealId = deal.getId();
 
         // Buyer creates a compliant mandate (limit >= target for buyer)
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         // Compliant terms: price=80000 (at target), delivery=10 (at target), revisions=3 (at target)
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "offer-key-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "Fair terms")))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roundNumber").value(1))
                 .andExpect(jsonPath("$.proposerRole").value("BUYER"))
                 .andExpect(jsonPath("$.mandateCompliant").value(true))
@@ -116,16 +117,15 @@ class OfferControllerTest {
         Deal deal = makeDeal(buyer, seller);
         UUID dealId = deal.getId();
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         // Non-compliant: price=100001 exceeds buyer's limit of 100000
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "offer-key-2")
                         .contentType("application/json")
                         .content(offerJson(dealId, 100001, 10, 3, "Over budget")))
@@ -154,15 +154,14 @@ class OfferControllerTest {
         Deal deal = makeDeal(buyer, seller);
         UUID dealId = deal.getId();
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(stranger)))
-                        .requestAttr("userId", stranger.getId())
                         .header("Idempotency-Key", "offer-key-4")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "Stranger")))
@@ -176,15 +175,14 @@ class OfferControllerTest {
         Deal deal = makeDeal(buyer, seller);
         UUID dealId = deal.getId();
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "No key")))
                 .andExpect(status().isBadRequest());
@@ -197,30 +195,28 @@ class OfferControllerTest {
         Deal deal = makeDeal(buyer, seller);
         UUID dealId = deal.getId();
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         // First request
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "replay-offer-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "First")))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roundNumber").value(1));
 
         // Same key + same request → replay
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "replay-offer-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "First")))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roundNumber").value(1));
     }
 
@@ -231,26 +227,24 @@ class OfferControllerTest {
         Deal deal = makeDeal(buyer, seller);
         UUID dealId = deal.getId();
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         // First request with terms A
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "conflict-offer-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "Terms A")))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roundNumber").value(1));
 
         // Same key + different terms → 409
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "conflict-offer-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 85000, 12, 2, "Terms B")))
@@ -264,21 +258,20 @@ class OfferControllerTest {
         Deal deal = makeDeal(buyer, seller);
         UUID dealId = deal.getId();
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         // Terms at buyer target: price=80000, delivery=10, revisions=3
         // uP=1.0, uD=1.0, uR=1.0 → U_B = 0.6*1.0 + 0.25*1.0 + 0.15*1.0 = 1.0000
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "utility-key-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "At target")))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.callerUtilityScore").value("1.0000"))
                 .andExpect(jsonPath("$.mandateCompliant").value(true));
     }

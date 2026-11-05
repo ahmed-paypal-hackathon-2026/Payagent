@@ -71,7 +71,7 @@ class MandateControllerTest {
 
     private UserDetails userDetails(User u) {
         return new org.springframework.security.core.userdetails.User(
-                u.getEmail(), "password", List.of());
+                u.getId().toString(), "password", List.of());
     }
 
     // -------------------------------------------------------- idempotency
@@ -85,11 +85,10 @@ class MandateControllerTest {
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "key-1")
-                        .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
                 .andDo(org.springframework.test.web.servlet.result.MockMvcResultHandlers.print())
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -100,7 +99,6 @@ class MandateControllerTest {
 
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
                 .andExpect(status().isBadRequest());
@@ -129,7 +127,6 @@ class MandateControllerTest {
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(stranger)))
                         .header("Idempotency-Key", "key-1")
-                        .requestAttr("userId", stranger.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
                 .andExpect(status().isForbidden());
@@ -142,15 +139,14 @@ class MandateControllerTest {
         Deal deal = makeDeal(buyer, seller);
 
         // Create a mandate first via service
-        MandateDTO dto = new MandateDTO("mandate-1", deal.getId().toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 List.of("figma", "source"), List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(deal.getId(), PartyRole.BUYER, dto);
+                NegotiationMode.ASSISTED, 5, java.time.OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(deal.getId(), buyer.getId(), req);
 
-        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates/me", deal.getId())
-                        .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId()))
+        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates", deal.getId())
+                        .with(user(userDetails(buyer))))
                 .andExpect(status().isOk());
     }
 
@@ -166,19 +162,17 @@ class MandateControllerTest {
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "replay-key-1")
-                        .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
 
         // Same key + same request → should succeed (idempotent replay)
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "replay-key-1")
-                        .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -191,16 +185,14 @@ class MandateControllerTest {
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "conflict-key-1")
-                        .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
 
         // Same key + different version → 409 Conflict
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "conflict-key-1")
-                        .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 2)))
                 .andExpect(status().isConflict());
