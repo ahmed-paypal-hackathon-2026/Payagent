@@ -4,6 +4,7 @@ import com.payagent.common.contracts.DealWorkspaceDTO;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,13 +24,17 @@ public class DealWorkspaceController {
     @GetMapping
     public ResponseEntity<DealWorkspaceDTO> getWorkspace(
             @PathVariable("id") UUID dealId,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = resolveUserId(userIdAttr, principal);
         DealWorkspaceDTO workspace = workspaceService.getWorkspace(dealId, userId);
         return ResponseEntity.ok(workspace);
     }
 
-    private UUID resolveUserId(Principal principal) {
+    private UUID resolveUserId(UUID userIdAttr, Principal principal) {
+        if (userIdAttr != null) {
+            return userIdAttr;
+        }
         try {
             return UUID.fromString(principal.getName());
         } catch (Exception e) {

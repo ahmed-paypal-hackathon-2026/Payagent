@@ -25,14 +25,16 @@ public class OfferController {
     private final UtilityCalculator utilityCalculator;
     private final IdempotencyService idempotencyService;
     private final OfferRepository offerRepository;
+    private final OfferRecorder offerRecorder;
 
-    public OfferController(DealService dealService, DealRepository dealRepository, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService, OfferRepository offerRepository) {
+    public OfferController(DealService dealService, DealRepository dealRepository, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService, OfferRepository offerRepository, OfferRecorder offerRecorder) {
         this.dealService = dealService;
         this.dealRepository = dealRepository;
         this.mandateService = mandateService;
         this.utilityCalculator = utilityCalculator;
         this.idempotencyService = idempotencyService;
         this.offerRepository = offerRepository;
+        this.offerRecorder = offerRecorder;
     }
 
     @PostMapping
@@ -91,38 +93,8 @@ public class OfferController {
                     }
                     String utilityScore = utility.setScale(4, java.math.RoundingMode.HALF_UP).toPlainString();
                     String rationale = req.message() == null ? "" : req.message();
-                    // lock parent deal to serialize round allocation per deal
-                    dealRepository.findByIdForUpdate(dealId)
-                            .orElseThrow(() -> new IllegalArgumentException("Deal not found"));
-                    // determine next round number
-                    Integer maxRound = offerRepository.findMaxRoundNumberByDealId(dealId);
-                    int nextRound = (maxRound == null) ? 1 : maxRound + 1;
-                    UUID offerId = UUID.randomUUID();
-                    Offer offerEntity = new Offer(
-                            offerId,
-                            dealId,
-                            nextRound,
-                            role,
-                            false,
-                            req.terms,
-                            rationale,
-                            utilityScore,
-                            true
-                    );
-                    Offer saved = offerRepository.save(offerEntity);
-                    OfferDTO offer = new OfferDTO(
-                            saved.getId().toString(),
-                            saved.getDealId().toString(),
-                            saved.getRoundNumber(),
-                            saved.getProposerRole(),
-                            saved.getGeneratedByAgent(),
-                            req.terms,
-                            saved.getRationaleSummary(),
-                            saved.getCallerUtilityScore(),
-                            saved.getMandateCompliant(),
-                            saved.getCreatedAt().toString()
-                    );
-                    return ResponseEntity.ok(offer);
+                    // persistence runs inside OfferRecorder's own transaction boundary
+                    return ResponseEntity.ok(offerRecorder.recordOffer(dealId, role, req.terms, rationale, utilityScore));
                 }
         );
     }
