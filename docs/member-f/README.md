@@ -17,3 +17,9 @@ The recording script is ready to use once the app supports its scenes. The rehea
 The complete integrated backend suite now passes: **405 total, 392 passed, 13 skipped**. Member F: **69 total, 60 passed, 9 skipped**. See [current verification](NOV5_VERIFICATION.md) for exact scope and remaining deployment blockers. Earlier reports are retained as dated evidence.
 
 Still required: correct and provision deployment, run genuine Sandbox/deployed-app probes, resolve applicable dependency findings, record actual buyer/seller/Sandbox footage, verify organizer rules and upload/submit the final public package. The storyboard rehearsal must remain labelled as rehearsal.
+
+F is the independent gatekeeper: missing features remain with their implementation owners. This package does not claim that 90% of the complete release assignment is verified or that all TST requirements pass.
+
+## Historical October 31 update
+
+[Read the combined-branch review and browser evidence](oct31-review/REVIEW.md). That dated report records the evidence and CORS findings before the subsequent fixes; current results are in the November 5 report above.
