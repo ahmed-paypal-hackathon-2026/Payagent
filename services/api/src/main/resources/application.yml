@@ -24,7 +24,7 @@ management:
         enabled: true
 
 server:
-  port: ${PAYAGENT_API_PORT:8080}
+  port: ${PORT:${PAYAGENT_API_PORT:8080}}
 
 payagent:
   jwt:

@@ -9,6 +9,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -170,5 +172,32 @@ class AuthIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void protectedEndpoint_missingJwt_returnsUnauthorized() throws Exception {
+        mockMvc.perform(post("/api/v1/deals")
+                        .header("Idempotency-Key", "missing-jwt-" + UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void protectedEndpoint_invalidJwt_returnsUnauthorized() throws Exception {
+        mockMvc.perform(post("/api/v1/deals")
+                        .header("Idempotency-Key", "invalid-jwt-" + UUID.randomUUID())
+                        .header("Authorization", "Bearer not-a-real-token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void protectedEndpoint_expiredJwt_returnsUnauthorized() throws Exception {
+        JwtTokenProvider expiredIssuer = new JwtTokenProvider(
+                "test-jwt-secret-minimum-32-characters-long", -1);
+        String token = expiredIssuer.createToken(UUID.randomUUID(), "expired@example.com");
+
+        mockMvc.perform(post("/api/v1/deals")
+                        .header("Idempotency-Key", "expired-jwt-" + UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
     }
 }

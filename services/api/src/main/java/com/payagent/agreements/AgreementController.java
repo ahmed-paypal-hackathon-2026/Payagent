@@ -29,8 +29,9 @@ public class AgreementController {
             @PathVariable("id") UUID dealId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody StructuredTermsDTO terms,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = resolveUserId(userIdAttr, principal);
         dealService.requireMembership(dealId, userId);
         String route = "/api/v1/deals/" + dealId + "/agreements/propose";
         return idempotencyService.execute(
@@ -49,8 +50,9 @@ public class AgreementController {
             @PathVariable("version") int version,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody AcceptRequest request,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = resolveUserId(userIdAttr, principal);
         com.payagent.common.contracts.PartyRole role = dealService.requireMembership(dealId, userId);
         String route = "/api/v1/deals/" + dealId + "/agreements/" + version + "/accept";
         AcceptPayload payload = new AcceptPayload(version, request.termsHashSha256(), role.name());
@@ -64,9 +66,10 @@ public class AgreementController {
         );
     }
 
-    private UUID resolveUserId(Principal principal) {
-        // Simplified: principal name is email, map to user id via repository in real implementation
-        // For now, assume principal name is UUID string for testing
+    private UUID resolveUserId(UUID userIdAttr, Principal principal) {
+        if (userIdAttr != null) {
+            return userIdAttr;
+        }
         try {
             return UUID.fromString(principal.getName());
         } catch (Exception e) {

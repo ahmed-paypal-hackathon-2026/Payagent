@@ -23,7 +23,7 @@ CREATE TABLE mandates (
     deal_id                 UUID NOT NULL REFERENCES deals (id),
     party_role              VARCHAR(16) NOT NULL,
     version                 INT NOT NULL,
-    currency                CHAR(3) NOT NULL,
+    currency                VARCHAR(3) NOT NULL,
     limit_price_minor       BIGINT NOT NULL,
     target_price_minor      BIGINT NOT NULL,
     limit_delivery_days     INT NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE agreements (
     deal_id             UUID NOT NULL REFERENCES deals (id),
     version             INT NOT NULL,
     canonical_terms_json JSONB NOT NULL,
-    terms_hash_sha256   CHAR(64) NOT NULL,
+    terms_hash_sha256   VARCHAR(64) NOT NULL,
     buyer_accepted_at   TIMESTAMPTZ,
     seller_accepted_at  TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -73,7 +73,7 @@ CREATE TABLE invoices (
     paypal_invoice_number   VARCHAR(128),
     paypal_invoice_view_url TEXT,
     amount_minor            BIGINT NOT NULL,
-    currency                CHAR(3) NOT NULL,
+    currency                VARCHAR(3) NOT NULL,
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -87,7 +87,7 @@ CREATE TABLE payments (
     paypal_capture_id       VARCHAR(128),
     authorization_expires_at TIMESTAMPTZ,
     amount_minor            BIGINT NOT NULL,
-    currency                CHAR(3) NOT NULL,
+    currency                VARCHAR(3) NOT NULL,
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -98,7 +98,7 @@ CREATE TABLE evidence (
     filename        VARCHAR(512) NOT NULL,
     mime_type       VARCHAR(128) NOT NULL,
     size_bytes      BIGINT NOT NULL,
-    sha256_hash     CHAR(64) NOT NULL,
+    sha256_hash     VARCHAR(64) NOT NULL,
     version         INT NOT NULL,
     storage_key     VARCHAR(1024) NOT NULL,
     uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -136,7 +136,7 @@ CREATE TABLE idempotency_keys (
     idempotency_key VARCHAR(128) NOT NULL,
     deal_id         UUID,
     route           VARCHAR(256) NOT NULL,
-    request_hash    CHAR(64) NOT NULL,
+    request_hash    VARCHAR(64) NOT NULL,
     response_status INT NOT NULL,
     response_body   JSONB,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
