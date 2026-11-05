@@ -31,10 +31,7 @@ services:
       - key: PAYPAL_WEBHOOK_ID
         sync: false
       - key: CORS_ALLOWED_ORIGINS
-        fromService:
-          type: web
-          name: payagent-web
-          envVarKey: RENDER_EXTERNAL_URL
+        sync: false
 
   - type: web
     name: payagent-web
@@ -53,6 +50,6 @@ services:
 
 databases:
   - name: payagent-db
-    plan: starter
+    plan: basic-256mb
     databaseName: payagent
     user: payagent
