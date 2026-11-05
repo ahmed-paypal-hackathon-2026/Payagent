@@ -4,8 +4,10 @@ import com.payagent.auth.User;
 import com.payagent.auth.UserRepository;
 import com.payagent.common.contracts.MandateDTO;
 import com.payagent.common.contracts.NegotiationMode;
+import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.PartyRole;
 import com.payagent.deals.Deal;
+import com.payagent.deals.DealRepository;
 import com.payagent.deals.DealService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,8 @@ class MandateControllerTest {
     @Autowired private ObjectMapper mapper;
     @Autowired private UserRepository userRepository;
     @Autowired private DealService dealService;
+
+    @Autowired private DealRepository dealRepository;
     @Autowired private MandateService mandateService;
 
     private User makeUser(String email) {
@@ -46,7 +50,7 @@ class MandateControllerTest {
     }
 
     private Deal makeDeal(User buyer, User seller) {
-        return dealService.createDeal(buyer.getId(), seller.getId());
+        return dealRepository.save(new Deal(UUID.randomUUID(), buyer.getId(), seller.getId(), DealStatus.ACTIVE_NEGOTIATION));
     }
 
     private String mandateJson(UUID dealId, int version) throws Exception {
@@ -89,7 +93,7 @@ class MandateControllerTest {
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
                 .andDo(org.springframework.test.web.servlet.result.MockMvcResultHandlers.print())
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -123,7 +127,7 @@ class MandateControllerTest {
     void createMandate_nonParticipant_returns403() throws Exception {
         User buyer = makeUser("ic7@test.com");
         User seller = makeUser("ic8@test.com");
-        User stranger = makeUser("stranger@test.com");
+        User stranger = makeUser("stranger-ic@test.com");
         Deal deal = makeDeal(buyer, seller);
 
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
@@ -146,9 +150,9 @@ class MandateControllerTest {
                 100000L, 80000L, 30, 10, 0, 3,
                 List.of("figma", "source"), List.of("resale"),
                 NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(deal.getId(), PartyRole.BUYER, dto);
+        mandateService.createMandate(deal.getId(), buyer.getId(), toRequest(dto));
 
-        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates/me", deal.getId())
+        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId()))
                 .andExpect(status().isOk());
@@ -169,7 +173,7 @@ class MandateControllerTest {
                         .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
 
         // Same key + same request → should succeed (idempotent replay)
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
@@ -178,7 +182,7 @@ class MandateControllerTest {
                         .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -194,7 +198,7 @@ class MandateControllerTest {
                         .requestAttr("userId", buyer.getId())
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
 
         // Same key + different version → 409 Conflict
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
@@ -204,5 +208,13 @@ class MandateControllerTest {
                         .contentType("application/json")
                         .content(mandateJson(deal.getId(), 2)))
                 .andExpect(status().isConflict());
+    }
+
+    private static MandateService.MandateCreateRequest toRequest(MandateDTO m) {
+        return new MandateService.MandateCreateRequest(
+                m.currency(), m.limitPriceMinorUnits(), m.targetPriceMinorUnits(),
+                m.limitDeliveryDays(), m.targetDeliveryDays(), m.limitRevisions(), m.targetRevisions(),
+                m.mustHaveDeliverables(), m.forbiddenTerms(), m.mode(), m.maxRounds(),
+                OffsetDateTime.parse(m.expiresAt()));
     }
 }
