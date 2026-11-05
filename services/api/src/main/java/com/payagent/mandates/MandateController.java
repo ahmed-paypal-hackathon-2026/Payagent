@@ -2,11 +2,13 @@ package com.payagent.mandates;
 
 import com.payagent.common.contracts.MandateDTO;
 import com.payagent.settlement.IdempotencyService;
+import com.payagent.settlement.port.AuditEventPort;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -15,10 +17,12 @@ public class MandateController {
 
     private final MandateService service;
     private final IdempotencyService idempotencyService;
+    private final AuditEventPort auditEventPort;
 
-    public MandateController(MandateService service, IdempotencyService idempotencyService) {
+    public MandateController(MandateService service, IdempotencyService idempotencyService, AuditEventPort auditEventPort) {
         this.service = service;
         this.idempotencyService = idempotencyService;
+        this.auditEventPort = auditEventPort;
     }
 
     @PostMapping
@@ -35,7 +39,15 @@ public class MandateController {
                 dealId,
                 req,
                 MandateDTO.class,
-                () -> ResponseEntity.ok(service.createMandate(dealId, userId, req))
+                () -> {
+                    MandateDTO dto = service.createMandate(dealId, userId, req);
+                    auditEventPort.recordEvent(dealId, "MANDATE_CREATED", Map.of(
+                            "userId", userId.toString(),
+                            "partyRole", dto.partyRole().name(),
+                            "version", dto.version()
+                    ));
+                    return ResponseEntity.ok(dto);
+                }
         );
     }
 

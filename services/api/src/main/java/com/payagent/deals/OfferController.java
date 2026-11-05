@@ -6,6 +6,7 @@ import com.payagent.common.contracts.StructuredTermsDTO;
 import com.payagent.mandates.MandateService;
 import com.payagent.mandates.UtilityCalculator;
 import com.payagent.settlement.IdempotencyService;
+import com.payagent.settlement.port.AuditEventPort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,14 +26,16 @@ public class OfferController {
     private final UtilityCalculator utilityCalculator;
     private final IdempotencyService idempotencyService;
     private final OfferRepository offerRepository;
+    private final AuditEventPort auditEventPort;
 
-    public OfferController(DealService dealService, DealRepository dealRepository, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService, OfferRepository offerRepository) {
+    public OfferController(DealService dealService, DealRepository dealRepository, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService, OfferRepository offerRepository, AuditEventPort auditEventPort) {
         this.dealService = dealService;
         this.dealRepository = dealRepository;
         this.mandateService = mandateService;
         this.utilityCalculator = utilityCalculator;
         this.idempotencyService = idempotencyService;
         this.offerRepository = offerRepository;
+        this.auditEventPort = auditEventPort;
     }
 
     @PostMapping
@@ -109,6 +112,13 @@ public class OfferController {
                             saved.getMandateCompliant(),
                             saved.getCreatedAt().toString()
                     );
+                    auditEventPort.recordEvent(dealId, "OFFER_SUBMITTED", Map.of(
+                            "offerId", saved.getId().toString(),
+                            "roundNumber", saved.getRoundNumber(),
+                            "proposerRole", saved.getProposerRole().name(),
+                            "userId", userId.toString(),
+                            "utilityScore", saved.getCallerUtilityScore()
+                    ));
                     return ResponseEntity.ok(offer);
                 }
         );
