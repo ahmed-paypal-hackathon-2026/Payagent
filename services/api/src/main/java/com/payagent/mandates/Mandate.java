@@ -5,6 +5,8 @@ import com.payagent.common.contracts.PartyRole;
 import jakarta.persistence.*;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "mandates", uniqueConstraints = @UniqueConstraint(columnNames = {"deal_id", "party_role", "version"}))
@@ -44,9 +46,11 @@ public class Mandate {
     @Column(name = "target_revisions", nullable = false)
     private Integer targetRevisions;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "must_have_deliverables", columnDefinition = "jsonb", nullable = false)
     private String mustHaveDeliverablesJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "forbidden_terms", columnDefinition = "jsonb", nullable = false)
     private String forbiddenTermsJson;
 

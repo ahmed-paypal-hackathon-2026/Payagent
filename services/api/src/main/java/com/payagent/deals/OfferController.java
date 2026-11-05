@@ -58,15 +58,27 @@ public class OfferController {
                 () -> {
                     // validate mandate
                     com.payagent.common.contracts.MandateDTO mandate = mandateService.getMandateForUser(dealId, userId);
-                    // basic validation
-                    if (req.terms.priceMinorUnits() > mandate.limitPriceMinorUnits()) {
-                        throw new IllegalArgumentException("Offer price exceeds mandate limit");
-                    }
-                    if (req.terms.deliveryDays() > mandate.limitDeliveryDays()) {
-                        throw new IllegalArgumentException("Offer delivery exceeds mandate limit");
-                    }
-                    if (req.terms.includedRevisions() < mandate.limitRevisions()) {
-                        throw new IllegalArgumentException("Offer revisions below mandate limit");
+                    // basic validation (BUYER limit is a ceiling, SELLER limit is a floor; revisions invert)
+                    if (role == PartyRole.BUYER) {
+                        if (req.terms.priceMinorUnits() > mandate.limitPriceMinorUnits()) {
+                            throw new IllegalArgumentException("Offer price exceeds mandate limit");
+                        }
+                        if (req.terms.deliveryDays() > mandate.limitDeliveryDays()) {
+                            throw new IllegalArgumentException("Offer delivery exceeds mandate limit");
+                        }
+                        if (req.terms.includedRevisions() < mandate.limitRevisions()) {
+                            throw new IllegalArgumentException("Offer revisions below mandate limit");
+                        }
+                    } else {
+                        if (req.terms.priceMinorUnits() < mandate.limitPriceMinorUnits()) {
+                            throw new IllegalArgumentException("Offer price below mandate limit");
+                        }
+                        if (req.terms.deliveryDays() < mandate.limitDeliveryDays()) {
+                            throw new IllegalArgumentException("Offer delivery below mandate limit");
+                        }
+                        if (req.terms.includedRevisions() > mandate.limitRevisions()) {
+                            throw new IllegalArgumentException("Offer revisions exceed mandate limit");
+                        }
                     }
                     // utility veto
                     BigDecimal utility = utilityCalculator.buyerUtility(mandate, req.terms);

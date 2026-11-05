@@ -3,6 +3,8 @@ package com.payagent.agreements;
 import jakarta.persistence.*;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "agreements", uniqueConstraints = {
@@ -20,6 +22,7 @@ public class Agreement {
     @Column(nullable = false)
     private Integer version;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "canonical_terms_json", nullable = false, columnDefinition = "jsonb")
     private String canonicalTermsJson;
 

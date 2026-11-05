@@ -390,8 +390,20 @@ public class SettlementService {
 
     @Transactional(readOnly = true)
     public SettlementStateDTO getSettlementState(UUID dealId, String callerEmail) {
-        dealPort.assertParty(dealId, callerEmail);
+        return getSettlementStateInternal(dealId, callerEmail);
+    }
 
+    @Transactional(readOnly = true)
+    public SettlementStateDTO getSettlementStateOrNull(UUID dealId, String callerEmail) {
+        try {
+            return getSettlementStateInternal(dealId, callerEmail);
+        } catch (SettlementNotFoundException ex) {
+            return null;
+        }
+    }
+
+    private SettlementStateDTO getSettlementStateInternal(UUID dealId, String callerEmail) {
+        dealPort.assertParty(dealId, callerEmail);
         InvoiceEntity invoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
         PaymentEntity payment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId).orElse(null);
 

@@ -74,8 +74,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         try {
             // Validate token and extract claims; will throw on expired or invalid
             jwtTokenProvider.parseToken(token);
-        } catch (ExpiredJwtException e) {
-            SecurityContextHolder.clearContext();
+        } catch (ExpiredJwtException e) {            SecurityContextHolder.clearContext();
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"Token expired\"}");
@@ -84,6 +83,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             SecurityContextHolder.clearContext();
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
+            org.slf4j.LoggerFactory.getLogger(JwtAuthFilter.class).warn(
+                    "JWT-BAD method={} uri={} detail={}", request.getMethod(), request.getRequestURI(), e.getMessage());
             response.getWriter().write("{\"error\":\"Unauthorized\"}");
             return;
         }
@@ -99,6 +100,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
         SecurityContextHolder.getContext().setAuthentication(authToken);
+        org.slf4j.LoggerFactory.getLogger(JwtAuthFilter.class).info(
+                "JWT-AUTH method={} uri={} userId={} email={}",
+                request.getMethod(), request.getRequestURI(), userId, email);
 
         // Store userId in request attributes for easy access in controllers
         request.setAttribute("userId", userId);

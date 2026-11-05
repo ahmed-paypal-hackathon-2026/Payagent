@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -30,6 +32,7 @@ public class IdempotencyKeyEntity {
     @Column(name = "response_status", nullable = false)
     private int responseStatus;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "response_body", columnDefinition = "jsonb")
     private String responseBody;
 
