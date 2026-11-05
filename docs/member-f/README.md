@@ -21,3 +21,5 @@ F is the independent gatekeeper: missing features remain with their implementati
 ## October 31 update
 
 [Read the combined-branch review and browser evidence](oct31-review/REVIEW.md). New probes advance evidence authorization/hash/expiry coverage and reproduce idempotency and CORS defects. Live integration and final recording remain outstanding.
+
+## November 5 update
