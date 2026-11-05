@@ -38,7 +38,7 @@ Source: `docs/WP-A2-PHASES.md` — Phases A1–A7. Phase A2 covers `UtilityCalcu
 | `services/api/src/main/java/com/payagent/agreements/Rfc8785Canonicalizer.java` | Rewritten: proper RFC 8785 canonicalization (sorted keys, canonical numbers, string escaping, compact output) |
 | `services/api/src/main/java/com/payagent/mandates/Offer.java` | Offer entity mapping to `offers` table; terms JSON serialization |
 | `services/api/src/main/java/com/payagent/mandates/OfferRepository.java` | JpaRepository for Offer with max round number query |
-| `services/api/src/main/java/com/payagent/mandates/OfferController.java` | POST /offers with mandate validation, utility score computation, idempotency |
+| `services/api/src/main/java/com/payagent/deals/OfferController.java` | POST /offers with mandate validation, utility score computation, idempotency |
 
 ### Modified files (production)
 
