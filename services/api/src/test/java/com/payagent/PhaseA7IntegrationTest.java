@@ -13,6 +13,7 @@ import com.payagent.deals.DealService;
 import com.payagent.mandates.MandateService;
 import com.payagent.mandates.UtilityCalculator;
 import com.payagent.agreements.AgreementService;
+import com.payagent.agreements.AgreementConflictException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,7 +69,7 @@ class PhaseA7IntegrationTest {
 
     private UserDetails userDetails(User u) {
         return new org.springframework.security.core.userdetails.User(
-                u.getEmail(), "password", List.of());
+                u.getId().toString(), "password", List.of());
     }
 
     @Test
@@ -79,28 +80,38 @@ class PhaseA7IntegrationTest {
         Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
         assertNotNull(deal.getId());
         assertEquals(DealStatus.DRAFT, deal.getStatus());
+        dealService.setStatus(deal.getId(), DealStatus.ACTIVE_NEGOTIATION);
 
         // 2. Buyer creates mandate
-        MandateDTO buyerMandate = new MandateDTO("mandate-1", deal.getId().toString(), PartyRole.BUYER, 1, "USD",
+        MandateDTO buyerMandateDto = new MandateDTO("mandate-1", deal.getId().toString(), PartyRole.BUYER, 1, "USD",
                 100000L, 80000L, 30, 10, 0, 3,
                 List.of("figma", "source"), List.of("resale"),
                 NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        MandateDTO created = mandateService.createMandate(deal.getId(), PartyRole.BUYER, buyerMandate);
+        MandateService.MandateCreateRequest buyerReq = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
+                List.of("figma", "source"), List.of("resale"),
+                NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        MandateDTO created = mandateService.createMandate(deal.getId(), buyer.getId(), buyerReq);
         assertNotNull(created.mandateId());
         assertEquals(List.of("figma", "source"), created.mustHaveDeliverables());
 
         // 3. Seller creates mandate
-        MandateDTO sellerMandate = new MandateDTO("mandate-2", deal.getId().toString(), PartyRole.SELLER, 1, "USD",
+        MandateDTO sellerMandateDto = new MandateDTO("mandate-2", deal.getId().toString(), PartyRole.SELLER, 1, "USD",
                 70000L, 100000L, 10, 30, 5, 1,
                 List.of(), List.of(), NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        MandateDTO sellerCreated = mandateService.createMandate(deal.getId(), PartyRole.SELLER, sellerMandate);
+        MandateService.MandateCreateRequest sellerReq = new MandateService.MandateCreateRequest(
+                "USD", 70000L, 100000L, 10, 30, 5, 1,
+                List.of(), List.of(),
+                NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        MandateDTO sellerCreated = mandateService.createMandate(deal.getId(), seller.getId(), sellerReq);
         assertNotNull(sellerCreated.mandateId());
 
         // 4. Compute utilities for converging terms
         StructuredTermsDTO terms = new StructuredTermsDTO("Design sprint", DELIVERED, 80000L, "USD", 12, 2,
                 "Lighthouse > 90");
-        BigDecimal buyerUtility = UtilityCalculator.buyerUtility(buyerMandate, terms);
-        BigDecimal sellerUtility = UtilityCalculator.sellerUtility(sellerMandate, terms);
+        UtilityCalculator calc = new UtilityCalculator();
+        BigDecimal buyerUtility = calc.buyerUtility(created, terms);
+        BigDecimal sellerUtility = calc.sellerUtility(sellerCreated, terms);
 
         // Buyer: uP=(100000-80000)/(100000-80000)=1.0, uD=(30-12)/(30-10)=0.9, uR=(2-0)/(3-0)=0.6667
         // U_B = 0.6*1.0 + 0.25*0.9 + 0.15*0.6667 = 0.9250
@@ -110,12 +121,12 @@ class PhaseA7IntegrationTest {
         assertEquals(new BigDecimal("0.3375"), sellerUtility);
 
         // 5. Propose agreement (as buyer via controller)
-        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "propose-1")
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(terms)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         AgreementSnapshotDTO snap = mapper.readValue(proposeResponse, AgreementSnapshotDTO.class);
@@ -142,14 +153,14 @@ class PhaseA7IntegrationTest {
         assertEquals(DealStatus.AGREED, dealService.getDeal(deal.getId()).getStatus());
 
         // 8. Stale version/hash rejection
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(AgreementConflictException.class,
                 () -> agreementService.acceptAgreement(deal.getId(), snap.version(), "0".repeat(64), "BUYER"));
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(com.payagent.agreements.AgreementNotFoundException.class,
                 () -> agreementService.acceptAgreement(deal.getId(), snap.version() + 1, snap.termsHashSha256(), "BUYER"));
 
         // 9. Mandate privacy: seller cannot retrieve buyer's mandate via GET /me as seller
         // (seller's own mandate is returned, not buyer's)
-        MandateDTO sellerMyMandate = mandateService.getLatestMandate(deal.getId(), PartyRole.SELLER);
+        MandateDTO sellerMyMandate = mandateService.getMandateForUser(deal.getId(), seller.getId());
         assertEquals(PartyRole.SELLER, sellerMyMandate.partyRole());
         assertEquals(sellerCreated.mandateId(), sellerMyMandate.mandateId());
     }
@@ -161,16 +172,15 @@ class PhaseA7IntegrationTest {
         User buyer2 = makeUser("privacy-b2@test.com");
         Deal deal = dealService.createDeal(buyer1.getId(), seller1.getId());
 
-        MandateDTO dto = new MandateDTO("mandate-1", deal.getId().toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
                 List.of("figma", "source"), List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(deal.getId(), PartyRole.BUYER, dto);
+                NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2026-12-31T23:59:59Z"));
+        mandateService.createMandate(deal.getId(), buyer1.getId(), req);
 
         // buyer2 (not a participant) cannot access the mandate
-        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates/me", deal.getId())
-                        .with(user(userDetails(buyer2)))
-                        .requestAttr("userId", buyer2.getId()))
+        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates", deal.getId())
+                        .with(user(userDetails(buyer2))))
                 .andExpect(status().isForbidden());
     }
 
@@ -181,31 +191,24 @@ class PhaseA7IntegrationTest {
         Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
 
         // Buyer: limitPrice < targetPrice → invalid
-        MandateDTO invalidBuyer = new MandateDTO("mandate-1", deal.getId().toString(), PartyRole.BUYER, 1, "USD",
-                70000L, 80000L, 30, 10, 0, 3,
-                List.of(), List.of(), NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
+        MandateService.MandateCreateRequest invalidBuyerReq = new MandateService.MandateCreateRequest(
+                "USD", 70000L, 80000L, 30, 10, 0, 3,
+                List.of(), List.of(), NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2026-12-31T23:59:59Z"));
         assertThrows(IllegalArgumentException.class,
-                () -> mandateService.createMandate(deal.getId(), PartyRole.BUYER, invalidBuyer));
+                () -> mandateService.createMandate(deal.getId(), buyer.getId(), invalidBuyerReq));
 
         // Seller: limitPrice > targetPrice → invalid
-        MandateDTO invalidSeller = new MandateDTO("mandate-2", deal.getId().toString(), PartyRole.SELLER, 1, "USD",
-                110000L, 100000L, 10, 30, 5, 1,
-                List.of(), List.of(), NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
+        MandateService.MandateCreateRequest invalidSellerReq = new MandateService.MandateCreateRequest(
+                "USD", 110000L, 100000L, 10, 30, 5, 1,
+                List.of(), List.of(), NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2026-12-31T23:59:59Z"));
         assertThrows(IllegalArgumentException.class,
-                () -> mandateService.createMandate(deal.getId(), PartyRole.SELLER, invalidSeller));
-
-        // Version 0 → invalid
-        MandateDTO invalidVersion = new MandateDTO("mandate-3", deal.getId().toString(), PartyRole.BUYER, 0, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
-                List.of(), List.of(), NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        assertThrows(IllegalArgumentException.class,
-                () -> mandateService.createMandate(deal.getId(), PartyRole.BUYER, invalidVersion));
+                () -> mandateService.createMandate(deal.getId(), seller.getId(), invalidSellerReq));
 
         // Past expiry → invalid
-        MandateDTO invalidExpiry = new MandateDTO("mandate-4", deal.getId().toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
-                List.of(), List.of(), NegotiationMode.ASSISTED, 5, "2020-01-01T00:00:00Z");
+        MandateService.MandateCreateRequest pastExpiryReq = new MandateService.MandateCreateRequest(
+                "USD", 100000L, 80000L, 30, 10, 0, 3,
+                List.of(), List.of(), NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2020-01-01T00:00:00Z"));
         assertThrows(IllegalArgumentException.class,
-                () -> mandateService.createMandate(deal.getId(), PartyRole.BUYER, invalidExpiry));
+                () -> mandateService.createMandate(deal.getId(), buyer.getId(), pastExpiryReq));
     }
 }

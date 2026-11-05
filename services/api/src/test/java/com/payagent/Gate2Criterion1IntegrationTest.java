@@ -67,7 +67,7 @@ class Gate2Criterion1IntegrationTest {
 
     private UserDetails userDetails(User u) {
         return new org.springframework.security.core.userdetails.User(
-                u.getEmail(), "password", List.of());
+                u.getId().toString(), "password", List.of());
     }
 
     private String mandateJson(UUID dealId, PartyRole role, int version) {
@@ -82,13 +82,22 @@ class Gate2Criterion1IntegrationTest {
                                long limitPrice, long targetPrice,
                                int limitDelivery, int targetDelivery,
                                int limitRevisions, int targetRevisions) {
-        MandateDTO dto = new MandateDTO("mandate-1", dealId.toString(), role, version, "USD",
-                limitPrice, targetPrice, limitDelivery, targetDelivery,
-                limitRevisions, targetRevisions,
-                DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD",
+                limitPrice,
+                targetPrice,
+                limitDelivery,
+                targetDelivery,
+                limitRevisions,
+                targetRevisions,
+                DELIVERED,
+                List.of("resale"),
+                NegotiationMode.ASSISTED,
+                5,
+                OffsetDateTime.parse("2026-12-31T23:59:59Z")
+        );
         try {
-            return mapper.writeValueAsString(dto);
+            return mapper.writeValueAsString(req);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -104,16 +113,16 @@ class Gate2Criterion1IntegrationTest {
         }
     }
 
-    private String acceptanceJson(int agreementVersion, String termsHashSha256) {
+    private String acceptanceJson(String termsHashSha256) {
         try {
-            return mapper.writeValueAsString(new AcceptanceRequest(agreementVersion, termsHashSha256));
+            return mapper.writeValueAsString(new AcceptanceRequest(termsHashSha256));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
     public record OfferCreateRequest(StructuredTermsDTO terms, String message) {}
-    public record AcceptanceRequest(int agreementVersion, String termsHashSha256) {}
+    public record AcceptanceRequest(String termsHashSha256) {}
 
     // -------------------------------------------------------- Criterion 1: Full negotiation flow
 
@@ -125,33 +134,31 @@ class Gate2Criterion1IntegrationTest {
         Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
         UUID dealId = deal.getId();
         assertEquals(DealStatus.DRAFT, deal.getStatus());
+        dealService.setStatus(dealId, DealStatus.ACTIVE_NEGOTIATION);
 
         // 2. Buyer creates mandate via REST API
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "mandate-buyer-1")
                         .contentType("application/json")
                         .content(mandateJson(dealId, PartyRole.BUYER, 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
 
         // 3. Seller creates mandate via REST API
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", dealId)
                         .with(user(userDetails(seller)))
-                        .requestAttr("userId", seller.getId())
                         .header("Idempotency-Key", "mandate-seller-1")
                         .contentType("application/json")
                         .content(mandateJson(dealId, PartyRole.SELLER, 1)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk());
 
         // 4. Buyer submits offer via REST API
         String offerResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "offer-buyer-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "Fair opening offer")))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roundNumber").value(1))
                 .andExpect(jsonPath("$.proposerRole").value("BUYER"))
                 .andExpect(jsonPath("$.mandateCompliant").value(true))
@@ -163,12 +170,12 @@ class Gate2Criterion1IntegrationTest {
         assertTrue(buyerOffer.mandateCompliant());
 
         // 5. Propose agreement via REST API
-        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", dealId)
+        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "propose-1")
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(buyerOffer.terms())))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.version").value(1))
                 .andExpect(jsonPath("$.termsHashSha256").isNotEmpty())
                 .andReturn().getResponse().getContentAsString();
@@ -183,21 +190,21 @@ class Gate2Criterion1IntegrationTest {
         assertEquals(DealStatus.TERMS_PENDING_ACCEPTANCE, dealService.getDeal(dealId).getStatus());
 
         // 6. Buyer accepts via REST API
-        mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", dealId)
+        mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", dealId, 1)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "accept-buyer-1")
                         .contentType("application/json")
-                        .content(acceptanceJson(1, termsHashSha256)))
+                        .content(acceptanceJson(termsHashSha256)))
                 .andExpect(status().isOk());
 
         assertEquals(DealStatus.TERMS_PENDING_ACCEPTANCE, dealService.getDeal(dealId).getStatus());
 
         // 7. Seller accepts via REST API -> deal transitions to AGREED
-        String acceptResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", dealId)
+        String acceptResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", dealId, 1)
                         .with(user(userDetails(seller)))
-                        .requestAttr("userId", seller.getId())
+                        .header("Idempotency-Key", "accept-seller-1")
                         .contentType("application/json")
-                        .content(acceptanceJson(1, termsHashSha256)))
+                        .content(acceptanceJson(termsHashSha256)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
@@ -221,20 +228,28 @@ class Gate2Criterion1IntegrationTest {
         Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
         UUID dealId = deal.getId();
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
-                DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD",
+                100000L,
+                80000L,
+                30,
+                10,
+                0,
+                3,
+                DELIVERED,
+                List.of("resale"),
+                NegotiationMode.ASSISTED,
+                5,
+                OffsetDateTime.parse("2026-12-31T23:59:59Z")
+        );
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
-        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates/me", dealId)
-                        .with(user(userDetails(outsider)))
-                        .requestAttr("userId", outsider.getId()))
+        mockMvc.perform(get("/api/v1/deals/{dealId}/mandates", dealId)
+                        .with(user(userDetails(outsider))))
                 .andExpect(status().isForbidden());
 
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(outsider)))
-                        .requestAttr("userId", outsider.getId())
                         .header("Idempotency-Key", "offer-outsider-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 80000, 10, 3, "Outsider offer")))
@@ -247,21 +262,31 @@ class Gate2Criterion1IntegrationTest {
         User seller = makeUser("invalid-s@test.com");
         Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
         UUID dealId = deal.getId();
+        dealService.setStatus(dealId, DealStatus.ACTIVE_NEGOTIATION);
 
-        MandateDTO buyerMandate = new MandateDTO("m-1", dealId.toString(), PartyRole.BUYER, 1, "USD",
-                100000L, 80000L, 30, 10, 0, 3,
-                DELIVERED, List.of("resale"),
-                NegotiationMode.ASSISTED, 5, "2026-12-31T23:59:59Z");
-        mandateService.createMandate(dealId, PartyRole.BUYER, buyerMandate);
+        MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
+                "USD",
+                100000L,
+                80000L,
+                30,
+                10,
+                0,
+                3,
+                DELIVERED,
+                List.of("resale"),
+                NegotiationMode.ASSISTED,
+                5,
+                OffsetDateTime.parse("2026-12-31T23:59:59Z")
+        );
+        mandateService.createMandate(dealId, buyer.getId(), req);
 
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
-                        .requestAttr("userId", buyer.getId())
                         .header("Idempotency-Key", "offer-invalid-1")
                         .contentType("application/json")
                         .content(offerJson(dealId, 100001, 10, 3, "Over budget")))
                 .andExpect(status().isUnprocessableEntity());
 
-        assertEquals(DealStatus.DRAFT, dealService.getDeal(dealId).getStatus());
+        assertEquals(DealStatus.ACTIVE_NEGOTIATION, dealService.getDeal(dealId).getStatus());
     }
 }
