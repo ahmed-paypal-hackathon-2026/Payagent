@@ -1,6 +1,7 @@
 package com.payagent.settlement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.common.contracts.PaymentLifecycleStatus;
 import com.payagent.paypal.PayPalInvoiceService;
@@ -12,6 +13,7 @@ import com.payagent.settlement.persistence.PayPalEventRepository;
 import com.payagent.settlement.persistence.PaymentEntity;
 import com.payagent.settlement.persistence.PaymentRepository;
 import com.payagent.settlement.port.AuditEventPort;
+import com.payagent.settlement.port.DealPort;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,7 @@ public class SettlementReconciliationService {
     private final PayPalInvoiceService invoiceService;
     private final PayPalOrderService orderService;
     private final AuditEventPort auditEventPort;
+    private final DealPort dealPort;
 
     public SettlementReconciliationService(
             PayPalEventRepository payPalEventRepository,
@@ -42,13 +45,15 @@ public class SettlementReconciliationService {
             PaymentRepository paymentRepository,
             PayPalInvoiceService invoiceService,
             PayPalOrderService orderService,
-            AuditEventPort auditEventPort) {
+            AuditEventPort auditEventPort,
+            DealPort dealPort) {
         this.payPalEventRepository = payPalEventRepository;
         this.invoiceRepository = invoiceRepository;
         this.paymentRepository = paymentRepository;
         this.invoiceService = invoiceService;
         this.orderService = orderService;
         this.auditEventPort = auditEventPort;
+        this.dealPort = dealPort;
     }
 
     @Transactional
@@ -142,6 +147,13 @@ public class SettlementReconciliationService {
                 payment.setUpdatedAt(Instant.now());
                 paymentRepository.save(payment);
                 auditEventPort.recordEvent(payment.getDealId(), "WEBHOOK_RECONCILED_AUTHORIZED", Map.of("authId", authId));
+                try {
+                    if (dealPort.getDealStatus(payment.getDealId()) == DealStatus.SETTLEMENT_PENDING) {
+                        transitionQuietly(payment.getDealId(), DealStatus.IN_PROGRESS);
+                    }
+                } catch (RuntimeException e) {
+                    log.warn("Could not advance deal {} after authorization reconciliation: {}", payment.getDealId(), e.getMessage());
+                }
                 return true;
             }
             default -> throw new IllegalStateException("Unexpected guard result " + decision);
@@ -197,6 +209,7 @@ public class SettlementReconciliationService {
                 return false;
             }
             case APPLY -> {
+                payment.setPaypalCaptureId(resourceId);
                 payment.setLifecycleStatus(PaymentLifecycleStatus.CAPTURE_PENDING);
                 payment.setUpdatedAt(Instant.now());
                 paymentRepository.save(payment);
@@ -233,6 +246,7 @@ public class SettlementReconciliationService {
                 paymentRepository.save(payment);
 
                 markInvoicePaidIfEligible(payment);
+                finalizeDealAfterCapture(payment.getDealId());
 
                 auditEventPort.recordEvent(payment.getDealId(), "WEBHOOK_RECONCILED_CAPTURED", Map.of("captureId", captureId));
                 return true;
@@ -271,6 +285,34 @@ public class SettlementReconciliationService {
             default -> throw new IllegalStateException("Unexpected guard result " + decision);
         }
     }
+
+    private void finalizeDealAfterCapture(UUID dealId) {
+        DealStatus status;
+        try {
+            status = dealPort.getDealStatus(dealId);
+        } catch (RuntimeException e) {
+            log.warn("Could not read deal {} after capture completion: {}", dealId, e.getMessage());
+            return;
+        }
+        if (status == DealStatus.DELIVERABLES_SUBMITTED) {
+            transitionQuietly(dealId, DealStatus.ACCEPTED);
+            status = DealStatus.ACCEPTED;
+        }
+        if (status == DealStatus.ACCEPTED) {
+            transitionQuietly(dealId, DealStatus.CLOSED);
+        }
+    }
+
+    private void transitionQuietly(UUID dealId, DealStatus targetStatus) {
+        try {
+            dealPort.transitionDealStatus(dealId, targetStatus);
+        } catch (RuntimeException e) {
+            log.warn("Could not transition deal {} to {} after webhook reconciliation: {}",
+                    dealId, targetStatus, e.getMessage());
+        }
+    }
+
+
 
     private Optional<PaymentEntity> resolvePayment(JsonNode node, String captureId) {
         String authId = relatedId(node, "authorization_id", "parent_payment");

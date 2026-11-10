@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,8 +31,9 @@ public class DeliverablesAcceptanceController {
             @PathVariable("id") UUID dealId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody(required = false) AcceptDeliverablesRequest request,
+            @RequestAttribute(value = "userEmail", required = false) String userEmail,
             Principal principal) {
-        String callerEmail = principal != null ? principal.getName() : null;
+        String callerEmail = resolveCallerEmail(userEmail, principal);
         int version = request != null && request.evidenceVersion() > 0 ? request.evidenceVersion() : 1;
         String route = "/api/v1/deals/" + dealId + "/accept-deliverables";
 
@@ -43,5 +45,12 @@ public class DeliverablesAcceptanceController {
                 SettlementStateDTO.class,
                 () -> ResponseEntity.ok(settlementService.acceptDeliverables(dealId, version, idempotencyKey, callerEmail))
         );
+    }
+
+    private String resolveCallerEmail(String userEmail, Principal principal) {
+        if (userEmail != null && !userEmail.isBlank()) {
+            return userEmail;
+        }
+        return principal != null ? principal.getName() : null;
     }
 }
