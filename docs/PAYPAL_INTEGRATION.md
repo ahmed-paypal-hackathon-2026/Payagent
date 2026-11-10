@@ -140,9 +140,9 @@ Both `PayPalAuthClient` and `PayPalEnvironmentGuard` check that `PAYPAL_API_BASE
 |------|------|-----------------------------------|
 | **PP-G1** | OAuth2 Token Exchange | Live Sandbox OAuth token retrieved with `grant_type=client_credentials`, cached with TTL, proactive 60s refresh margin. Verified by `smoke-proof.mjs` and `PayPalAuthClientTest`. |
 | **PP-G2** | Invoicing v2 Life Cycle | Invoicing v2 draft created with `termsHashSha256` in `detail.note`, matching agreement price to the exact cent, and successfully sent (`SENT` status, real `INV2-...` ID). Verified by `smoke-proof.mjs` and `PayPalInvoiceServiceTest`. |
-| **PP-G3** | Orders v2 Authorization Hold | Orders v2 order created with `intent: AUTHORIZE`, linked `invoice_id`, approved and authorized into an `AUTH-...` hold. Verified by `smoke-proof.mjs` and `PayPalOrderServiceTest`. |
-| **PP-G4** | Settlement Capture & Void | Buyer accepts deliverables → captured via Payments v2 (`CAP-...`), payment recorded on invoice (`PAID`), deal transitions to `ACCEPTED`/`CLOSED`. On dispute or mutual cancel, authorization is voided. Verified by `SettlementServiceTest`. |
-| **PP-G5** | Webhook Verification & Dedupe | Webhooks signed with PayPal PKI verified via `verify-webhook-signature`; tampered webhooks rejected with `400`; duplicate events deduplicated via `paypal_events` table; state reconciled. Verified by `PayPalWebhookControllerTest` and `SettlementReconciliationServiceTest`. |
+| **PP-G3** | Orders v2 Authorization Hold | Orders v2 order created with `intent: AUTHORIZE`, linked `invoice_id`, buyer-approved, and authorized into an `AUTH-...` hold. Automated by `smoke-proof.mjs` with `PAYPAL_SMOKE_WAIT_APPROVAL=true`; mocked by `PayPalOrderServiceTest`. |
+| **PP-G4** | Settlement Capture & Void | Buyer accepts deliverables → captured via Payments v2 (`CAP-...`), payment recorded on invoice (`PAID`), deal transitions to `ACCEPTED`/`CLOSED`. On dispute or mutual cancel, authorization is voided. Automated by `smoke-proof.mjs` (`PAYPAL_SMOKE_FLOW=capture|void`); mocked by `SettlementServiceTest` and `SettlementReconciliationServiceTest`. |
+| **PP-G5** | Webhook Verification & Dedupe | Webhooks signed with PayPal PKI verified via `verify-webhook-signature`; tampered webhooks rejected with `400`; duplicate events deduplicated via `paypal_events` table; state reconciled, including asynchronous capture completion and `PENDING` capture recovery. Verified by `PayPalWebhookControllerTest`, `PayPalWebhookSecurityIntegrationTest`, and `SettlementReconciliationServiceTest`. |
 
 ---
 
@@ -154,10 +154,21 @@ Both `PayPalAuthClient` and `PayPalEnvironmentGuard` check that `PAYPAL_API_BASE
 export PAYPAL_CLIENT_ID="your_sandbox_client_id"
 export PAYPAL_CLIENT_SECRET="your_sandbox_client_secret"
 export PAYPAL_API_BASE_URL="https://api-m.sandbox.paypal.com"
+export PAYPAL_INVOICER_EMAIL="sb-business@business.example.com"
+export PAYPAL_PAYER_EMAIL="sb-personal@personal.example.com"
 
-# Run smoke test
+# Create invoice/order only (PP-G1 to PP-G3a; prints an approval URL)
 node scripts/paypal-smoke/smoke-proof.mjs
+
+# Capture proof: prints a new approval URL, polls, authorizes, captures, records invoice payment
+# Approve the printed link with the Sandbox Personal account while the script waits.
+PAYPAL_SMOKE_WAIT_APPROVAL=true node scripts/paypal-smoke/smoke-proof.mjs
+
+# Void proof: same flow, but voids the authorization and cancels the invoice
+PAYPAL_SMOKE_WAIT_APPROVAL=true PAYPAL_SMOKE_FLOW=void node scripts/paypal-smoke/smoke-proof.mjs
 ```
+
+Live PayPal credentials are not stored in the repository. Without them, the script exits with `[SKIPPED]` and the unit/integration suites remain the only executed verification.
 
 ### 7.2 Backend Unit & Integration Tests
 ```bash

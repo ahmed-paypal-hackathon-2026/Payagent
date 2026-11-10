@@ -1,6 +1,7 @@
 package com.payagent.settlement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.common.contracts.PaymentLifecycleStatus;
 import com.payagent.paypal.PayPalInvoiceService;
@@ -12,6 +13,7 @@ import com.payagent.settlement.persistence.PayPalEventRepository;
 import com.payagent.settlement.persistence.PaymentEntity;
 import com.payagent.settlement.persistence.PaymentRepository;
 import com.payagent.settlement.port.AuditEventPort;
+import com.payagent.settlement.port.DealPort;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,7 @@ public class SettlementReconciliationService {
     private final PayPalInvoiceService invoiceService;
     private final PayPalOrderService orderService;
     private final AuditEventPort auditEventPort;
+    private final DealPort dealPort;
 
     public SettlementReconciliationService(
             PayPalEventRepository payPalEventRepository,
@@ -42,13 +45,15 @@ public class SettlementReconciliationService {
             PaymentRepository paymentRepository,
             PayPalInvoiceService invoiceService,
             PayPalOrderService orderService,
-            AuditEventPort auditEventPort) {
+            AuditEventPort auditEventPort,
+            DealPort dealPort) {
         this.payPalEventRepository = payPalEventRepository;
         this.invoiceRepository = invoiceRepository;
         this.paymentRepository = paymentRepository;
         this.invoiceService = invoiceService;
         this.orderService = orderService;
         this.auditEventPort = auditEventPort;
+        this.dealPort = dealPort;
     }
 
     @Transactional
@@ -67,9 +72,8 @@ public class SettlementReconciliationService {
         switch (eventType) {
             case "PAYMENT.AUTHORIZATION.CREATED" -> handleAuthorizationCreated(resourceId, resourceNode);
             case "PAYMENT.AUTHORIZATION.VOIDED" -> handleAuthorizationVoided(resourceId);
-            case "PAYMENT.AUTHORIZATION.CAPTURED" -> handleCaptureCompleted(resourceId, resourceNode);
             case "PAYMENT.CAPTURE.COMPLETED" -> handleCaptureCompleted(resourceId, resourceNode);
-            case "PAYMENT.CAPTURE.PENDING" -> log.info("Capture pending for resource {} on deal reconciliation", resourceId);
+            case "PAYMENT.CAPTURE.PENDING" -> handleCapturePending(resourceId, resourceNode);
             case "PAYMENT.CAPTURE.DENIED" -> handleCaptureDenied(resourceId, resourceNode);
             case "INVOICING.INVOICE.PAID" -> handleInvoicePaid(resourceId);
             case "INVOICING.INVOICE.CANCELLED" -> handleInvoiceCancelled(resourceId);
@@ -94,6 +98,10 @@ public class SettlementReconciliationService {
             payment.setUpdatedAt(Instant.now());
             paymentRepository.save(payment);
             auditEventPort.recordEvent(payment.getDealId(), "WEBHOOK_RECONCILED_AUTHORIZED", Map.of("authId", authId));
+
+            if (dealPort.getDealStatus(payment.getDealId()) == DealStatus.SETTLEMENT_PENDING) {
+                transitionQuietly(payment.getDealId(), DealStatus.IN_PROGRESS);
+            }
         });
     }
 
@@ -124,8 +132,53 @@ public class SettlementReconciliationService {
                 }
             });
 
+            finalizeDealAfterCapture(payment.getDealId());
             auditEventPort.recordEvent(payment.getDealId(), "WEBHOOK_RECONCILED_CAPTURED", Map.of("captureId", captureId));
         });
+    }
+
+    private void handleCapturePending(String captureId, JsonNode node) {
+        resolvePayment(node, captureId).ifPresent(payment -> {
+            if (payment.getLifecycleStatus() == PaymentLifecycleStatus.COMPLETED
+                    || payment.getLifecycleStatus() == PaymentLifecycleStatus.DECLINED
+                    || payment.getLifecycleStatus() == PaymentLifecycleStatus.VOIDED) {
+                log.info("Ignoring out-of-order PENDING capture event for deal {} in status {}",
+                        payment.getDealId(), payment.getLifecycleStatus());
+                return;
+            }
+            payment.setPaypalCaptureId(captureId);
+            payment.setLifecycleStatus(PaymentLifecycleStatus.CAPTURE_PENDING);
+            payment.setUpdatedAt(Instant.now());
+            paymentRepository.save(payment);
+            auditEventPort.recordEvent(payment.getDealId(), "WEBHOOK_RECONCILED_CAPTURE_PENDING",
+                    Map.of("captureId", captureId));
+        });
+    }
+
+    private void finalizeDealAfterCapture(UUID dealId) {
+        DealStatus status;
+        try {
+            status = dealPort.getDealStatus(dealId);
+        } catch (RuntimeException e) {
+            log.warn("Could not read deal {} after capture completion: {}", dealId, e.getMessage());
+            return;
+        }
+        if (status == DealStatus.DELIVERABLES_SUBMITTED) {
+            transitionQuietly(dealId, DealStatus.ACCEPTED);
+            status = DealStatus.ACCEPTED;
+        }
+        if (status == DealStatus.ACCEPTED) {
+            transitionQuietly(dealId, DealStatus.CLOSED);
+        }
+    }
+
+    private void transitionQuietly(UUID dealId, DealStatus targetStatus) {
+        try {
+            dealPort.transitionDealStatus(dealId, targetStatus);
+        } catch (RuntimeException e) {
+            log.warn("Could not transition deal {} to {} after webhook reconciliation: {}",
+                    dealId, targetStatus, e.getMessage());
+        }
     }
 
     private void handleCaptureDenied(String captureId, JsonNode node) {
