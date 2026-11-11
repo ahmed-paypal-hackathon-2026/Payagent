@@ -26,71 +26,94 @@ function scenarioHint(summary: MockDealSummary): string {
 }
 
 function DealCard({ summary }: { summary: MockDealSummary }) {
+  const isBuyer = summary.myRole === "BUYER";
+
   return (
-    <Card
-      className={
+    <div
+      className={`group relative overflow-hidden rounded-2xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${
         summary.status === "DISPUTED"
-          ? "border-rose-200/90 shadow-sm ring-1 ring-rose-100"
+          ? "border-rose-200 bg-white ring-1 ring-rose-100/80 hover:border-rose-300"
           : summary.status === "TERMS_PENDING_ACCEPTANCE" || summary.status === "DELIVERABLES_SUBMITTED"
-            ? "border-amber-200/90 shadow-sm ring-1 ring-amber-100"
-            : undefined
-      }
+            ? "border-amber-200 bg-white ring-1 ring-amber-100/80 hover:border-amber-300"
+            : "border-slate-200/90 bg-white hover:border-slate-300 shadow-2xs"
+      }`}
     >
-      <CardBody className="flex h-full flex-col gap-4">
+      {/* Top Accent Gradient Bar */}
+      <div
+        className={`h-1.5 w-full ${
+          summary.status === "DISPUTED"
+            ? "bg-gradient-to-r from-rose-500 to-amber-500"
+            : summary.status === "AGREED" || summary.status === "ACCEPTED" || summary.status === "CLOSED"
+              ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+              : isBuyer
+                ? "bg-gradient-to-r from-sky-500 to-indigo-500"
+                : "bg-gradient-to-r from-emerald-500 to-cyan-500"
+        }`}
+      />
+
+      <div className="flex h-full flex-col p-5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              <span className={`h-1.5 w-1.5 rounded-full ${summary.myRole === "BUYER" ? "bg-sky-500" : "bg-emerald-500"}`} />
-              {summary.myRole === "BUYER" ? "Buyer perspective" : "Seller perspective"}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                isBuyer ? "bg-sky-50 text-sky-700 border border-sky-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isBuyer ? "bg-sky-500" : "bg-emerald-500"}`} />
+              {isBuyer ? "Buyer Workspace" : "Seller Workspace"}
             </span>
-            <h3 className="mt-1 truncate text-base font-bold text-slate-900 group-hover:text-emerald-700 transition">
+            <h3 className="mt-2 truncate text-base font-bold text-slate-900 group-hover:text-emerald-700 transition">
               {summary.title}
             </h3>
-            <p className="mt-1 font-mono text-[10px] text-slate-400 select-all">{summary.dealId}</p>
+            <p className="mt-0.5 font-mono text-[10px] text-slate-400 select-all">{summary.dealId}</p>
           </div>
           <DealStatusBadge status={summary.status} />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <InvoiceStatusBadge status={summary.settlement.invoiceStatus} />
           <PaymentStatusBadge status={summary.settlement.paymentStatus} />
           <Badge tone="neutral">{summary.offerCount} rounds</Badge>
         </div>
 
-        <p className="text-xs leading-relaxed text-slate-600 bg-slate-50/80 rounded-xl p-2.5 border border-slate-100">
-          <span className="font-semibold text-slate-700">Next milestone:</span> {scenarioHint(summary)}
-        </p>
-
-        <dl className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-          <div className="rounded-lg bg-slate-50/50 p-2">
-            <dt className="text-[10px] uppercase font-semibold text-slate-400">Counterparty</dt>
-            <dd className="mt-0.5 truncate font-medium text-slate-800">{summary.counterpartyEmail ?? "Awaiting invite"}</dd>
+        <div className="mt-3 rounded-xl bg-slate-50/90 p-3 border border-slate-100 text-xs text-slate-600">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+            <span>Milestone Target</span>
           </div>
-          <div className="rounded-lg bg-slate-50/50 p-2">
-            <dt className="text-[10px] uppercase font-semibold text-slate-400">Last activity</dt>
-            <dd className="mt-0.5 font-medium text-slate-800">{formatDateTime(summary.updatedAt)}</dd>
+          <p className="mt-1 text-slate-600 leading-relaxed">{scenarioHint(summary)}</p>
+        </div>
+
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-xl bg-slate-50/50 p-2.5 border border-slate-100/60">
+            <dt className="text-[10px] uppercase font-bold text-slate-400">Counterparty</dt>
+            <dd className="mt-0.5 truncate font-semibold text-slate-800">{summary.counterpartyEmail ?? "Awaiting invite"}</dd>
+          </div>
+          <div className="rounded-xl bg-slate-50/50 p-2.5 border border-slate-100/60">
+            <dt className="text-[10px] uppercase font-bold text-slate-400">Activity</dt>
+            <dd className="mt-0.5 font-semibold text-slate-800">{formatDateTime(summary.updatedAt)}</dd>
           </div>
         </dl>
 
-        <div className="mt-auto flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+        <div className="mt-5 flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
           <Link
             href={`/deals/${summary.dealId}`}
-            className="inline-flex min-h-8.5 items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 active:scale-95 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+            className="inline-flex min-h-9 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-slate-800 active:scale-95 transition-all group-hover:bg-emerald-700 group-hover:shadow-emerald-700/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
           >
-            <span>Open workspace</span>
-            <svg className="h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            <span>Enter Deal Room</span>
+            <svg className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
             </svg>
           </Link>
           {summary.disputeStatus !== "NONE" ? (
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 border border-rose-100">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
               Dispute {summary.disputeStatus.toLowerCase()}
             </span>
           ) : null}
         </div>
-      </CardBody>
-    </Card>
+      </div>
+    </div>
   );
 }
 
