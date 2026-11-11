@@ -3,6 +3,8 @@ package com.payagent.settlement;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +15,7 @@ import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.common.contracts.PaymentLifecycleStatus;
 import com.payagent.paypal.PayPalInvoiceService;
 import com.payagent.paypal.PayPalOrderService;
+import com.payagent.settlement.SettlementReconciliationService.WebhookProcessingResult;
 import com.payagent.settlement.persistence.InvoiceEntity;
 import com.payagent.settlement.persistence.InvoiceRepository;
 import com.payagent.settlement.persistence.PayPalEventEntity;
@@ -45,6 +48,8 @@ class SettlementReconciliationServiceTest {
         orderService = mock(PayPalOrderService.class);
         auditEventPort = mock(AuditEventPort.class);
 
+        when(eventRepository.insertIfAbsent(anyString(), anyString(), nullable(String.class), anyString())).thenReturn(1);
+
         reconciliationService = new SettlementReconciliationService(
                 eventRepository,
                 invoiceRepository,
@@ -58,27 +63,28 @@ class SettlementReconciliationServiceTest {
 
     @Test
     void duplicateEventIdIsIgnoredAndNotReprocessed() {
-        when(eventRepository.existsByEventId("EVT-DUPE-123")).thenReturn(true);
+        when(eventRepository.insertIfAbsent(eq("EVT-DUPE-123"), eq("PAYMENT.CAPTURE.COMPLETED"), nullable(String.class), eq("{}")))
+                .thenReturn(0);
 
-        boolean processed = reconciliationService.processWebhookEvent(
+        var result = reconciliationService.processWebhookEvent(
                 "EVT-DUPE-123", "PAYMENT.CAPTURE.COMPLETED", "CAP-1", null, "{}"
         );
 
-        assertThat(processed).isFalse();
-        verify(eventRepository, never()).save(any(PayPalEventEntity.class));
+        assertThat(result).isEqualTo(WebhookProcessingResult.DUPLICATE);
+        verify(paymentRepository, never()).save(any());
+        verify(invoiceRepository, never()).save(any());
+        verify(auditEventPort, never()).recordEvent(any(), anyString(), any());
     }
 
     @Test
     void paymentAuthorizationVoidedUpdatesPaymentStatus() throws Exception {
-        when(eventRepository.existsByEventId("EVT-VOID-1")).thenReturn(false);
-
         PaymentEntity payment = new PaymentEntity(
                 UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.AUTHORIZED,
                 "ORD-1", "AUTH-TARGET", null, null, 98000L, "USD"
         );
         when(paymentRepository.findByPaypalAuthorizationId("AUTH-TARGET")).thenReturn(Optional.of(payment));
 
-        boolean processed = reconciliationService.processWebhookEvent(
+        var result = reconciliationService.processWebhookEvent(
                 "EVT-VOID-1",
                 "PAYMENT.AUTHORIZATION.VOIDED",
                 "AUTH-TARGET",
@@ -86,23 +92,21 @@ class SettlementReconciliationServiceTest {
                 "{}"
         );
 
-        assertThat(processed).isTrue();
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
         assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.VOIDED);
         verify(paymentRepository).save(payment);
-        verify(eventRepository).save(any(PayPalEventEntity.class));
+        verify(eventRepository).insertIfAbsent(anyString(), anyString(), nullable(String.class), anyString());
     }
 
     @Test
     void captureCompletedUsesSupplementaryDataAuthorizationId() throws Exception {
-        when(eventRepository.existsByEventId("EVT-CAP-1")).thenReturn(false);
-
         PaymentEntity payment = new PaymentEntity(
                 UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.AUTHORIZED,
                 "ORD-1", "AUTH-SUPP", null, null, 98000L, "USD"
         );
         when(paymentRepository.findByPaypalAuthorizationId("AUTH-SUPP")).thenReturn(Optional.of(payment));
 
-        boolean processed = reconciliationService.processWebhookEvent(
+        var result = reconciliationService.processWebhookEvent(
                 "EVT-CAP-1",
                 "PAYMENT.CAPTURE.COMPLETED",
                 "CAP-SUPP",
@@ -120,7 +124,7 @@ class SettlementReconciliationServiceTest {
                 "{}"
         );
 
-        assertThat(processed).isTrue();
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
         assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.COMPLETED);
         assertThat(payment.getPaypalCaptureId()).isEqualTo("CAP-SUPP");
         verify(paymentRepository).save(payment);
@@ -128,7 +132,6 @@ class SettlementReconciliationServiceTest {
 
     @Test
     void authorizationCreatedResolvesOrderFromSupplementaryData() throws Exception {
-        when(eventRepository.existsByEventId("EVT-AUTH-1")).thenReturn(false);
         when(paymentRepository.findByPaypalAuthorizationId("AUTH-NEW")).thenReturn(Optional.empty());
 
         PaymentEntity payment = new PaymentEntity(
@@ -137,7 +140,7 @@ class SettlementReconciliationServiceTest {
         );
         when(paymentRepository.findByPaypalOrderId("ORD-SUPP")).thenReturn(Optional.of(payment));
 
-        boolean processed = reconciliationService.processWebhookEvent(
+        var result = reconciliationService.processWebhookEvent(
                 "EVT-AUTH-1",
                 "PAYMENT.AUTHORIZATION.CREATED",
                 "AUTH-NEW",
@@ -154,7 +157,7 @@ class SettlementReconciliationServiceTest {
                 "{}"
         );
 
-        assertThat(processed).isTrue();
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
         assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.AUTHORIZED);
         assertThat(payment.getPaypalAuthorizationId()).isEqualTo("AUTH-NEW");
         verify(paymentRepository).save(payment);
@@ -162,15 +165,13 @@ class SettlementReconciliationServiceTest {
 
     @Test
     void captureDeniedMarksPaymentDeclined() throws Exception {
-        when(eventRepository.existsByEventId("EVT-CAP-DENIED-1")).thenReturn(false);
-
         PaymentEntity payment = new PaymentEntity(
                 UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.CAPTURE_PENDING,
                 "ORD-1", "AUTH-DENIED", "CAP-DENIED", null, 98000L, "USD"
         );
         when(paymentRepository.findByPaypalCaptureId("CAP-DENIED")).thenReturn(Optional.of(payment));
 
-        boolean processed = reconciliationService.processWebhookEvent(
+        var result = reconciliationService.processWebhookEvent(
                 "EVT-CAP-DENIED-1",
                 "PAYMENT.CAPTURE.DENIED",
                 "CAP-DENIED",
@@ -178,15 +179,13 @@ class SettlementReconciliationServiceTest {
                 "{}"
         );
 
-        assertThat(processed).isTrue();
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
         assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.DECLINED);
         verify(paymentRepository).save(payment);
     }
 
     @Test
     void captureCompletedAlsoMarksInvoicePaid() throws Exception {
-        when(eventRepository.existsByEventId("EVT-CAP-PAID-1")).thenReturn(false);
-
         UUID dealId = UUID.randomUUID();
         PaymentEntity payment = new PaymentEntity(
                 dealId, dealId, 1, PaymentLifecycleStatus.AUTHORIZED,
@@ -199,7 +198,7 @@ class SettlementReconciliationServiceTest {
         when(paymentRepository.findByPaypalAuthorizationId("AUTH-PAID")).thenReturn(Optional.of(payment));
         when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(invoice));
 
-        boolean processed = reconciliationService.processWebhookEvent(
+        var result = reconciliationService.processWebhookEvent(
                 "EVT-CAP-PAID-1",
                 "PAYMENT.CAPTURE.COMPLETED",
                 "CAP-PAID",
@@ -216,7 +215,7 @@ class SettlementReconciliationServiceTest {
                 "{}"
         );
 
-        assertThat(processed).isTrue();
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
         assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.COMPLETED);
         assertThat(invoice.getLifecycleStatus()).isEqualTo(InvoiceLifecycleStatus.PAID);
         verify(invoiceRepository).save(invoice);
@@ -224,15 +223,13 @@ class SettlementReconciliationServiceTest {
 
     @Test
     void invoicePaidUpdatesInvoiceStatus() throws Exception {
-        when(eventRepository.existsByEventId("EVT-INV-PAID-1")).thenReturn(false);
-
         InvoiceEntity invoice = new InvoiceEntity(
                 UUID.randomUUID(), UUID.randomUUID(), 1, InvoiceLifecycleStatus.SENT,
                 "INV2-TARGET", "001", null, 98000L, "USD"
         );
         when(invoiceRepository.findByPaypalInvoiceId("INV2-TARGET")).thenReturn(Optional.of(invoice));
 
-        boolean processed = reconciliationService.processWebhookEvent(
+        var result = reconciliationService.processWebhookEvent(
                 "EVT-INV-PAID-1",
                 "INVOICING.INVOICE.PAID",
                 "INV2-TARGET",
@@ -240,8 +237,127 @@ class SettlementReconciliationServiceTest {
                 "{}"
         );
 
-        assertThat(processed).isTrue();
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
         assertThat(invoice.getLifecycleStatus()).isEqualTo(InvoiceLifecycleStatus.PAID);
         verify(invoiceRepository).save(invoice);
+    }
+
+    @Test
+    void captureCompletedDoesNotOverrideVoidedPayment() throws Exception {
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.VOIDED,
+                "ORD-VOID", "AUTH-VOID", null, null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-VOID")).thenReturn(Optional.of(payment));
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-CAP-VOIDED",
+                "PAYMENT.CAPTURE.COMPLETED",
+                "CAP-LATE",
+                objectMapper.readTree("""
+                        {
+                          "id": "CAP-LATE",
+                          "supplementary_data": { "related_ids": { "authorization_id": "AUTH-VOID" } }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION);
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.VOIDED);
+        verify(paymentRepository, never()).save(any(PaymentEntity.class));
+        verify(auditEventPort).recordEvent(any(), eq("WEBHOOK_CONFLICT_CAPTURE_COMPLETED"), any());
+    }
+
+    @Test
+    void captureDeniedDoesNotOverrideCompletedPayment() throws Exception {
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.COMPLETED,
+                "ORD-DONE", "AUTH-DONE", "CAP-DONE", null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalCaptureId("CAP-DONE")).thenReturn(Optional.of(payment));
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-CAP-DENIED-LATE",
+                "PAYMENT.CAPTURE.DENIED",
+                "CAP-DONE",
+                objectMapper.readTree("{\"id\":\"CAP-DONE\"}"),
+                "{}"
+        );
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION);
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.COMPLETED);
+        verify(paymentRepository, never()).save(any(PaymentEntity.class));
+        verify(auditEventPort).recordEvent(any(), eq("WEBHOOK_CONFLICT_CAPTURE_DENIED"), any());
+    }
+
+    @Test
+    void invoicePaidDoesNotOverrideCancelledInvoice() throws Exception {
+        InvoiceEntity invoice = new InvoiceEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, InvoiceLifecycleStatus.CANCELLED,
+                "INV2-CANCELLED", "001", null, 98000L, "USD"
+        );
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-CANCELLED")).thenReturn(Optional.of(invoice));
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-INV-PAID-LATE",
+                "INVOICING.INVOICE.PAID",
+                "INV2-CANCELLED",
+                objectMapper.readTree("{\"id\":\"INV2-CANCELLED\"}"),
+                "{}"
+        );
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION);
+        assertThat(invoice.getLifecycleStatus()).isEqualTo(InvoiceLifecycleStatus.CANCELLED);
+        verify(invoiceRepository, never()).save(any(InvoiceEntity.class));
+        verify(auditEventPort).recordEvent(any(), eq("WEBHOOK_CONFLICT_INVOICE_PAID"), any());
+    }
+
+    @Test
+    void invoiceCancelledDoesNotOverridePaidInvoice() throws Exception {
+        InvoiceEntity invoice = new InvoiceEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, InvoiceLifecycleStatus.PAID,
+                "INV2-PAID", "001", null, 98000L, "USD"
+        );
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-PAID")).thenReturn(Optional.of(invoice));
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-INV-CANCELLED-LATE",
+                "INVOICING.INVOICE.CANCELLED",
+                "INV2-PAID",
+                objectMapper.readTree("{\"id\":\"INV2-PAID\"}"),
+                "{}"
+        );
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION);
+        assertThat(invoice.getLifecycleStatus()).isEqualTo(InvoiceLifecycleStatus.PAID);
+        verify(invoiceRepository, never()).save(any(InvoiceEntity.class));
+        verify(auditEventPort).recordEvent(any(), eq("WEBHOOK_CONFLICT_INVOICE_CANCELLED"), any());
+    }
+
+    @Test
+    void capturePendingTransitionsAuthorizedPayment() throws Exception {
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(), UUID.randomUUID(), 1, PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-PENDING", "AUTH-PENDING", null, null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-PENDING")).thenReturn(Optional.of(payment));
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-CAP-PENDING-1",
+                "PAYMENT.CAPTURE.PENDING",
+                "CAP-PENDING",
+                objectMapper.readTree("""
+                        {
+                          "id": "CAP-PENDING",
+                          "supplementary_data": { "related_ids": { "authorization_id": "AUTH-PENDING" } }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.CAPTURE_PENDING);
+        verify(paymentRepository).save(payment);
     }
 }

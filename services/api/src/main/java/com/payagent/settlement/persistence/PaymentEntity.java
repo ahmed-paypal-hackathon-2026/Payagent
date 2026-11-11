@@ -40,6 +40,23 @@ public class PaymentEntity {
     @Column(name = "authorization_expires_at")
     private Instant authorizationExpiresAt;
 
+    // Set in a separate REQUIRES_NEW transaction before the capture call to
+    // PayPal; cleared once the outcome is durably persisted. This is the
+    // marker used by scheduled reconciliation to find payments that may have
+    // been captured remotely without local persistence.
+    @Column(name = "capture_attempted_at")
+    private Instant captureAttemptedAt;
+
+    // Durable capture-attempt correlation for reconciliation and replay safety.
+    // PENDING_RECONCILIATION means an attempt reached (or may have reached)
+    // PayPal and its remote outcome is not yet conclusively persisted; this
+    // blocks further capture attempts until recovery resolves it.
+    @Column(name = "capture_request_id", length = 128)
+    private String captureRequestId;
+
+    @Column(name = "capture_resolution", nullable = false, length = 32)
+    private String captureResolution = "NONE";
+
     @Column(name = "amount_minor", nullable = false)
     private long amountMinor;
 
@@ -121,6 +138,30 @@ public class PaymentEntity {
 
     public void setPaypalCaptureId(String paypalCaptureId) {
         this.paypalCaptureId = paypalCaptureId;
+    }
+
+    public Instant getCaptureAttemptedAt() {
+        return captureAttemptedAt;
+    }
+
+    public void setCaptureAttemptedAt(Instant captureAttemptedAt) {
+        this.captureAttemptedAt = captureAttemptedAt;
+    }
+
+    public String getCaptureRequestId() {
+        return captureRequestId;
+    }
+
+    public void setCaptureRequestId(String captureRequestId) {
+        this.captureRequestId = captureRequestId;
+    }
+
+    public String getCaptureResolution() {
+        return captureResolution;
+    }
+
+    public void setCaptureResolution(String captureResolution) {
+        this.captureResolution = captureResolution;
     }
 
     public Instant getAuthorizationExpiresAt() {
