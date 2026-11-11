@@ -15,11 +15,11 @@ services:
       - key: PAYAGENT_DB_USER
         fromDatabase:
           name: payagent-db
-          property: username
+          property: user
       - key: PAYAGENT_DB_PASSWORD
         fromDatabase:
           name: payagent-db
-          property: user
+          property: password
       - key: PAYAGENT_JWT_SECRET
         generateValue: true
       - key: PAYPAL_API_BASE_URL
@@ -53,6 +53,6 @@ services:
 
 databases:
   - name: payagent-db
-    plan: starter
+    plan: free
     databaseName: payagent
     user: payagent
