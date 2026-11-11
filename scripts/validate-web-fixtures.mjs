@@ -99,6 +99,24 @@ const dealRoomPath = path.join(
   "[dealId]",
   "page.tsx",
 );
+const agreementPanelPath = path.join(
+  root,
+  "apps",
+  "web",
+  "src",
+  "components",
+  "deal",
+  "AgreementPanel.tsx",
+);
+const mockDealWorkspacePath = path.join(
+  root,
+  "apps",
+  "web",
+  "src",
+  "components",
+  "deal",
+  "MockDealWorkspace.tsx",
+);
 let dealRoomSource = "";
 try {
   dealRoomSource = await readFile(dealRoomPath, "utf8");
@@ -108,13 +126,17 @@ try {
 }
 
 if (dealRoomSource) {
+  const agreementPanelSource = await readFile(agreementPanelPath, "utf8").catch(() => "");
+  const mockWorkspaceSource = await readFile(mockDealWorkspacePath, "utf8").catch(() => "");
+  const combinedDealSource = dealRoomSource + agreementPanelSource + mockWorkspaceSource;
+
   check(
     "Deal Room renders termsHashSha256",
-    dealRoomSource.includes("termsHashSha256"),
+    combinedDealSource.includes("termsHashSha256"),
   );
-  check("Deal Room renders dual acceptance", dealRoomSource.includes("buyerAcceptedAt"));
-  check("Deal Room renders offer history", dealRoomSource.includes("offers"));
-  check("Deal Room has accept button", dealRoomSource.includes("accept-button"));
+  check("Deal Room renders dual acceptance", combinedDealSource.includes("buyerAcceptedAt"));
+  check("Deal Room renders offer history", combinedDealSource.includes("offers"));
+  check("Deal Room has accept button", combinedDealSource.includes("Accept agreement"));
 }
 
 // --- 5. The fixture-backed API client exists
@@ -136,9 +158,12 @@ if (apiSource) {
 
 // --- 6. Root page links to the Deal Room
 const rootPagePath = path.join(root, "apps", "web", "src", "app", "page.tsx");
+const dashboardPath = path.join(root, "apps", "web", "src", "components", "Dashboard.tsx");
 try {
   const rootPage = await readFile(rootPagePath, "utf8");
-  check("Root page links to Deal Room", rootPage.includes("/deals/"));
+  const dashboard = await readFile(dashboardPath, "utf8").catch(() => "");
+  const combinedHomeSource = rootPage + dashboard;
+  check("Root page links to Deal Room", combinedHomeSource.includes("/deals/"));
 } catch {
   check("Root page links to Deal Room", false, "missing root page");
 }

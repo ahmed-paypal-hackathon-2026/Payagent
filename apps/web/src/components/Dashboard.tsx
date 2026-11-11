@@ -30,20 +30,23 @@ function DealCard({ summary }: { summary: MockDealSummary }) {
     <Card
       className={
         summary.status === "DISPUTED"
-          ? "border-rose-200 shadow-sm"
+          ? "border-rose-200/90 shadow-sm ring-1 ring-rose-100"
           : summary.status === "TERMS_PENDING_ACCEPTANCE" || summary.status === "DELIVERABLES_SUBMITTED"
-            ? "border-amber-200 shadow-sm"
+            ? "border-amber-200/90 shadow-sm ring-1 ring-amber-100"
             : undefined
       }
     >
       <CardBody className="flex h-full flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              {summary.myRole === "BUYER" ? "Buyer workspace" : "Seller workspace"}
-            </p>
-            <h3 className="mt-0.5 truncate text-base font-semibold text-slate-900">{summary.title}</h3>
-            <p className="mt-1 font-mono text-[11px] text-slate-500">{summary.dealId}</p>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <span className={`h-1.5 w-1.5 rounded-full ${summary.myRole === "BUYER" ? "bg-sky-500" : "bg-emerald-500"}`} />
+              {summary.myRole === "BUYER" ? "Buyer perspective" : "Seller perspective"}
+            </span>
+            <h3 className="mt-1 truncate text-base font-bold text-slate-900 group-hover:text-emerald-700 transition">
+              {summary.title}
+            </h3>
+            <p className="mt-1 font-mono text-[10px] text-slate-400 select-all">{summary.dealId}</p>
           </div>
           <DealStatusBadge status={summary.status} />
         </div>
@@ -51,31 +54,39 @@ function DealCard({ summary }: { summary: MockDealSummary }) {
         <div className="flex flex-wrap items-center gap-1.5">
           <InvoiceStatusBadge status={summary.settlement.invoiceStatus} />
           <PaymentStatusBadge status={summary.settlement.paymentStatus} />
-          <Badge tone="neutral">{summary.offerCount} offers</Badge>
+          <Badge tone="neutral">{summary.offerCount} rounds</Badge>
         </div>
 
-        <p className="text-sm leading-relaxed text-slate-600">{scenarioHint(summary)}</p>
+        <p className="text-xs leading-relaxed text-slate-600 bg-slate-50/80 rounded-xl p-2.5 border border-slate-100">
+          <span className="font-semibold text-slate-700">Next milestone:</span> {scenarioHint(summary)}
+        </p>
 
         <dl className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-          <div>
-            <dt className="font-medium text-slate-500">Counterparty</dt>
-            <dd className="truncate text-slate-800">{summary.counterpartyEmail ?? "Not joined yet"}</dd>
+          <div className="rounded-lg bg-slate-50/50 p-2">
+            <dt className="text-[10px] uppercase font-semibold text-slate-400">Counterparty</dt>
+            <dd className="mt-0.5 truncate font-medium text-slate-800">{summary.counterpartyEmail ?? "Awaiting invite"}</dd>
           </div>
-          <div>
-            <dt className="font-medium text-slate-500">Updated</dt>
-            <dd className="text-slate-800">{formatDateTime(summary.updatedAt)}</dd>
+          <div className="rounded-lg bg-slate-50/50 p-2">
+            <dt className="text-[10px] uppercase font-semibold text-slate-400">Last activity</dt>
+            <dd className="mt-0.5 font-medium text-slate-800">{formatDateTime(summary.updatedAt)}</dd>
           </div>
         </dl>
 
-        <div className="mt-auto flex items-center justify-between gap-3 pt-1">
+        <div className="mt-auto flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
           <Link
             href={`/deals/${summary.dealId}`}
-            className="inline-flex min-h-9 items-center rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            className="inline-flex min-h-8.5 items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 active:scale-95 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
           >
-            Open workspace
+            <span>Open workspace</span>
+            <svg className="h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
           </Link>
           {summary.disputeStatus !== "NONE" ? (
-            <span className="text-[11px] font-semibold text-rose-700">Dispute {summary.disputeStatus.toLowerCase()}</span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+              Dispute {summary.disputeStatus.toLowerCase()}
+            </span>
           ) : null}
         </div>
       </CardBody>
@@ -100,58 +111,81 @@ function MockDashboard() {
   return (
     <>
       <PageHeader
-        eyebrow="Demo workspace"
-        title={`Good to see you, ${currentUser.displayName}`}
+        eyebrow="Demo environment"
+        title={`Welcome back, ${currentUser.displayName}`}
         description={
           <>
-            Four synthetic scenarios cover negotiation, dual consent, sandbox settlement, deliverable review, and a
-            capture-freezing dispute. Use <strong>Viewing as</strong> in the header to compare the buyer and seller views.
+            Autonomous bilateral deal room with automated PayPal sandbox settlement and AI-bounded negotiation. Use <strong>Viewing as</strong> in the top bar to switch perspectives.
           </>
         }
         actions={
           <>
             <Link
               href="/intake"
-              className="inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 active:scale-95 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
             >
-              Start a buyer deal
+              <svg className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Create buyer deal</span>
             </Link>
             <Link
               href="/join"
-              className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-800 shadow-2xs hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
             >
-              Join with invite
+              <span>Join with invite</span>
             </Link>
           </>
         }
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Negotiating", value: stats.active, tone: "text-sky-800" },
-          { label: "Settlement stage", value: stats.settlement, tone: "text-emerald-800" },
-          { label: "Awaiting review", value: stats.review, tone: "text-amber-800" },
-          { label: "Disputed", value: stats.disputed, tone: "text-rose-800" },
+          { label: "Negotiating", value: stats.active, tone: "text-sky-700 bg-sky-50/70 border-sky-100", hint: "Active offer rounds" },
+          { label: "Settlement stage", value: stats.settlement, tone: "text-emerald-700 bg-emerald-50/70 border-emerald-100", hint: "Agreed / In progress" },
+          { label: "Awaiting review", value: stats.review, tone: "text-amber-700 bg-amber-50/70 border-amber-100", hint: "Deliverables submitted" },
+          { label: "Disputed / Frozen", value: stats.disputed, tone: "text-rose-700 bg-rose-50/70 border-rose-100", hint: "Funds safely locked" },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
-            <p className={`mt-1 text-2xl font-bold ${stat.tone}`}>{stat.value}</p>
+          <div key={stat.label} className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs transition-all hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{stat.label}</p>
+              <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold ${stat.tone}`}>
+                {stat.hint}
+              </span>
+            </div>
+            <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">{stat.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="mb-6 grid gap-3 lg:grid-cols-3">
-        <Alert tone="info" title="Privacy by role">
-          Only <code className="rounded bg-white/70 px-1">myMandate</code> is rendered. The counterparty limits, targets,
-          and forbidden terms never appear in the shared workspace view.
-        </Alert>
-        <Alert tone="info" title="Money stays integral">
-          Prices are stored and sent as integer minor units. Formatting happens at display time without floating-point
-          arithmetic.
-        </Alert>
-        <Alert tone="info" title="Explicitly simulated">
-          Demo actions, hashes, and IDs are labelled. In live mode the UI only shows values returned by the backend.
-        </Alert>
+      <div className="mb-8 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-800">🔒</span>
+            Zero-Knowledge Mandates
+          </div>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            Targets, reservation prices, and utility scores stay private on the client. Counterparties never see confidential thresholds.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-sky-100 text-sky-800">⚡</span>
+            Integer Minor Units
+          </div>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            All escrow, invoices, and payouts are tracked strictly as integer cents, eliminating floating-point rounding drifts.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-amber-100 text-amber-800">🛡</span>
+            Dispute Fund Freeze
+          </div>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            Raising a dispute instantly halts automated PayPal capture across both API and webhook workers until resolution.
+          </p>
+        </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

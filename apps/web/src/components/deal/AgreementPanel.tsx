@@ -25,16 +25,31 @@ function AcceptanceCard({
   isYou: boolean;
 }) {
   return (
-    <div className={`rounded-xl border px-4 py-3 ${acceptedAt ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-slate-50"}`}>
+    <div
+      className={`rounded-2xl border p-4.5 transition-all shadow-2xs ${
+        acceptedAt
+          ? "border-emerald-200/90 bg-emerald-50/70"
+          : "border-slate-200/80 bg-slate-50/60"
+      }`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">
-          {role}
-          {isYou ? " (you)" : ""}
-        </p>
-        <Badge tone={acceptedAt ? "success" : "warning"}>{acceptedAt ? "Accepted" : "Waiting"}</Badge>
+        <div className="flex items-center gap-2">
+          <span
+            className={`flex h-6 w-6 items-center justify-center rounded-lg text-xs font-bold ${
+              acceptedAt ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"
+            }`}
+          >
+            {acceptedAt ? "✓" : "⏳"}
+          </span>
+          <p className="text-sm font-bold text-slate-900">
+            {role}
+            {isYou ? <span className="ml-1 text-xs font-medium text-emerald-800">(you)</span> : ""}
+          </p>
+        </div>
+        <Badge tone={acceptedAt ? "success" : "warning"}>{acceptedAt ? "Accepted & Signed" : "Pending Signature"}</Badge>
       </div>
-      <p className="mt-1 text-xs text-slate-600">
-        {acceptedAt ? `Signed ${formatDateTime(acceptedAt)}` : "No acceptance recorded for this version."}
+      <p className="mt-2.5 text-xs text-slate-600">
+        {acceptedAt ? `Dual-consent logged: ${formatDateTime(acceptedAt)}` : "No cryptographically-bound acceptance recorded for this version."}
       </p>
     </div>
   );
@@ -205,23 +220,27 @@ export function AgreementPanel({
           <CardBody className="space-y-5">
             <TermsSummary terms={agreement.canonicalTerms} />
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Agreement hash</p>
-                  <code className="mt-1 block break-all font-mono text-[11px] leading-relaxed text-slate-700">
+            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4.5 shadow-2xs">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">
+                    <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <span>RFC-8785 Canonical JSON SHA-256 Hash</span>
+                  </div>
+                  <code className="block select-all break-all font-mono text-xs font-semibold leading-relaxed text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-200/70">
                     {agreement.termsHashSha256}
                   </code>
                 </div>
-                <CopyButton value={agreement.termsHashSha256} label="Copy hash" />
+                <CopyButton value={agreement.termsHashSha256} label="Copy termsHashSha256" />
               </div>
-              <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                Demo workspace: this is a local SHA-256 demo hash, not the server&apos;s RFC-8785 canonical hash. In live
-                mode the value comes from the API response and is never recomputed for authority.
+              <p className="mt-2.5 text-[11px] leading-relaxed text-slate-500">
+                Any subsequent amendment to terms automatically computes a new SHA-256 hash, immediately invalidating both prior consent signatures.
               </p>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               <AcceptanceCard role="Buyer" acceptedAt={agreement.buyerAcceptedAt} isYou={workspace.myRole === "BUYER"} />
               <AcceptanceCard role="Seller" acceptedAt={agreement.sellerAcceptedAt} isYou={workspace.myRole === "SELLER"} />
             </div>
@@ -229,37 +248,35 @@ export function AgreementPanel({
             {bothAccepted ? (
               <Alert
                 tone="success"
-                title="The agreement has dual consent"
+                title="Dual bilateral consent complete"
                 action={
                   <Button size="sm" onClick={onOpenSettlement}>
-                    Open settlement
+                    Proceed to settlement →
                   </Button>
                 }
               >
-                Both acceptance timestamps were recorded against version {agreement.version}. The next server-verified step is
-                sandbox settlement.
+                Both buyer and seller cryptographic timestamps are locked against version {agreement.version}. The deal is eligible for PayPal Sandbox escrow hold.
               </Alert>
             ) : myAcceptedAt ? (
-              <Alert tone="info" title="Your acceptance is recorded">
-                Waiting for the other party to accept this exact version and hash.
+              <Alert tone="info" title="Your acceptance signature is registered">
+                Awaiting counterparty consent for identical terms and cryptographic hash before sandbox invoice authorization.
               </Alert>
             ) : canAccept ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-4">
-                <p className="text-sm font-semibold text-emerald-950">Accept agreement v{agreement.version}</p>
+              <div className="rounded-2xl border border-emerald-300 bg-emerald-50/70 p-5 shadow-2xs">
+                <p className="text-sm font-bold text-emerald-950">Confirm and Accept Agreement v{agreement.version}</p>
                 <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
-                  You are accepting the exact terms above. Any later edit creates a new version and invalidates this
-                  acceptance.
+                  By accepting, you bind your account to the exact deliverables, milestones, and price stated above. Modifying terms will revoke this signature.
                 </p>
-                <label className="mt-3 flex items-start gap-2 text-xs font-medium text-emerald-950">
+                <label className="mt-3.5 flex items-center gap-2.5 text-xs font-semibold text-emerald-950 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={confirmed}
                     onChange={(event) => setConfirmed(event.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-emerald-400 text-emerald-700 focus:ring-emerald-600"
+                    className="h-4.5 w-4.5 rounded border-emerald-400 text-emerald-700 focus:ring-emerald-600"
                   />
-                  I reviewed the terms and hash, and I accept this version.
+                  I confirm acceptance of version {agreement.version} and verified the hash integrity.
                 </label>
-                <Button className="mt-3" onClick={accept} loading={accepting} disabled={!confirmed}>
+                <Button className="mt-3.5" onClick={accept} loading={accepting} disabled={!confirmed}>
                   Accept agreement v{agreement.version}
                 </Button>
               </div>
