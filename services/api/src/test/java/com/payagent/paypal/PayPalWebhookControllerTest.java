@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.payagent.settlement.SettlementReconciliationService;
+import com.payagent.settlement.SettlementReconciliationService.WebhookProcessingResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -60,7 +61,7 @@ class PayPalWebhookControllerTest {
         when(webhookVerifier.verifySignature(any(), any(), any(), any(), any(), any()))
                 .thenReturn(true);
         when(reconciliationService.processWebhookEvent(anyString(), anyString(), any(), any(), anyString()))
-                .thenReturn(true);
+                .thenReturn(WebhookProcessingResult.PROCESSED);
 
         mockMvc.perform(post("/api/v1/paypal/webhooks")
                         .contentType(MediaType.APPLICATION_JSON)

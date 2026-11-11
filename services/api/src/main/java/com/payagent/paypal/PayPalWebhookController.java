@@ -16,10 +16,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/paypal")
 public class PayPalWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(PayPalWebhookController.class);
+
+    static final String LEGACY_WEBHOOK_PATH = "/api/v1/paypal/webhooks";
+    static final String PAYPAL_NOTIFICATIONS_VERIFY_PATH = "/v1/notifications/verify-webhook-signature";
 
     private final PayPalWebhookVerifier webhookVerifier;
     private final SettlementReconciliationService reconciliationService;
@@ -34,7 +36,7 @@ public class PayPalWebhookController {
         this.objectMapper = objectMapper;
     }
 
-    @PostMapping(value = "/webhooks", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = {LEGACY_WEBHOOK_PATH, PAYPAL_NOTIFICATIONS_VERIFY_PATH}, consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, String>> handleWebhook(
             @RequestHeader(value = "PAYPAL-AUTH-ALGO", required = false) String authAlgo,
             @RequestHeader(value = "PAYPAL-CERT-URL", required = false) String certUrl,
@@ -78,10 +80,15 @@ public class PayPalWebhookController {
 
         String eventType = eventNode.hasNonNull("event_type") ? eventNode.get("event_type").asText() : "UNKNOWN";
         JsonNode resourceNode = eventNode.get("resource");
-        String resourceId = resourceNode != null && resourceNode.has("id") ? resourceNode.get("id").asText() : null;
+        String resourceId = resourceNode != null && resourceNode.hasNonNull("id") ? resourceNode.get("id").asText() : null;
 
-        reconciliationService.processWebhookEvent(eventId, eventType, resourceId, resourceNode, rawPayload);
+        var result = reconciliationService.processWebhookEvent(eventId, eventType, resourceId, resourceNode, rawPayload);
 
-        return ResponseEntity.ok(Map.of("status", "SUCCESS"));
+        return switch (result) {
+            case PROCESSED -> ResponseEntity.ok(Map.of("status", "SUCCESS", "processing", "PROCESSED"));
+            case DUPLICATE -> ResponseEntity.ok(Map.of("status", "SUCCESS", "processing", "DUPLICATE"));
+            case IGNORED_UNSUPPORTED -> ResponseEntity.ok(Map.of("status", "SUCCESS", "processing", "IGNORED_UNSUPPORTED"));
+            case ACKNOWLEDGED_NO_BUSINESS_MUTATION -> ResponseEntity.ok(Map.of("status", "SUCCESS", "processing", "ACKNOWLEDGED_NO_BUSINESS_MUTATION"));
+        };
     }
 }

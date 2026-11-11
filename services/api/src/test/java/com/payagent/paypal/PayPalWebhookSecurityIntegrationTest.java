@@ -28,4 +28,13 @@ class PayPalWebhookSecurityIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("INVALID_SIGNATURE"));
     }
+
+    @Test
+    void paypalNotificationsAliasEndpointIsReachableWithoutJwt() throws Exception {
+        mockMvc.perform(post("/v1/notifications/verify-webhook-signature")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":\"WH-SEC-ALIAS-1\",\"event_type\":\"PAYMENT.CAPTURE.COMPLETED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("INVALID_SIGNATURE"));
+    }
 }
