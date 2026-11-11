@@ -19,7 +19,7 @@ services:
       - key: PAYAGENT_DB_PASSWORD
         fromDatabase:
           name: payagent-db
-          property: password
+          property: user
       - key: PAYAGENT_JWT_SECRET
         generateValue: true
       - key: PAYPAL_API_BASE_URL
