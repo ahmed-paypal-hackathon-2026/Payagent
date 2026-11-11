@@ -42,6 +42,7 @@ public class SettlementService {
     private final PaymentRepository paymentRepository;
     private final DealPort dealPort;
     private final AuditEventPort auditEventPort;
+    private final CaptureAttemptService captureAttemptService;
 
     // Concurrency guard to prevent double capture attempts on the same deal
     private final Map<UUID, Object> captureLocks = new ConcurrentHashMap<>();
@@ -51,13 +52,15 @@ public class SettlementService {
                              InvoiceRepository invoiceRepository,
                              PaymentRepository paymentRepository,
                              DealPort dealPort,
-                             AuditEventPort auditEventPort) {
+                             AuditEventPort auditEventPort,
+                             CaptureAttemptService captureAttemptService) {
         this.invoiceService = invoiceService;
         this.orderService = orderService;
         this.invoiceRepository = invoiceRepository;
         this.paymentRepository = paymentRepository;
         this.dealPort = dealPort;
         this.auditEventPort = auditEventPort;
+        this.captureAttemptService = captureAttemptService;
     }
 
     @Transactional
@@ -272,7 +275,27 @@ public class SettlementService {
                 throw new SettlementConflictException("Cannot capture: PayPal authorization has expired");
             }
 
+            // A previous attempt must never cause a second capture when its outcome is unknown.
+            if (payment.getCaptureAttemptedAt() != null && (
+                    CaptureAttemptService.OPEN.equals(payment.getCaptureResolution())
+                            || CaptureAttemptService.PENDING_RECONCILIATION.equals(payment.getCaptureResolution()))) {
+                log.warn("Capture blocked: payment {} has an open capture attempt (request id {}). A resolution is pending before another capture can be attempted.",
+                        payment.getId(), payment.getCaptureRequestId());
+                throw new SettlementConflictException("Capture blocked: a previous capture attempt is awaiting reconciliation");
+            }
+
             String capRequestId = idempotencyKey != null ? idempotencyKey + "-cap" : UUID.randomUUID().toString();
+
+            // Persist the capture attempt before the external call. The whole
+            // settlement runs inside one transaction that is rolled back on
+            // failure, so this marker must be written in its own transaction.
+            try {
+                captureAttemptService.markCaptureAttempted(payment.getId(), capRequestId);
+            } catch (Exception e) {
+                log.error("Failed to record capture attempt marker for payment {}: {}", payment.getId(), e.getMessage());
+                throw new SettlementConflictException("Cannot capture: failed to persist capture attempt marker");
+            }
+
             PayPalCaptureResponse capture = orderService.captureAuthorization(
                     payment.getPaypalAuthorizationId(),
                     payment.getAmountMinor(),
@@ -287,6 +310,8 @@ public class SettlementService {
 
             payment.setPaypalCaptureId(capture.id());
             payment.setLifecycleStatus(captureStatus);
+            payment.setCaptureAttemptedAt(null);
+            payment.setCaptureResolution(CaptureAttemptService.RESOLVED);
             payment.setUpdatedAt(Instant.now());
             paymentRepository.save(payment);
 

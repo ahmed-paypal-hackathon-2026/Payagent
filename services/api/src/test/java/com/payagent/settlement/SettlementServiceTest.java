@@ -42,6 +42,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
 
 class SettlementServiceTest {
 
@@ -51,6 +52,7 @@ class SettlementServiceTest {
     private PaymentRepository paymentRepository;
     private DealPort dealPort;
     private AuditEventPort auditEventPort;
+    private CaptureAttemptService captureAttemptService;
     private SettlementService settlementService;
 
     private final UUID dealId = UUID.randomUUID();
@@ -66,6 +68,7 @@ class SettlementServiceTest {
         paymentRepository = mock(PaymentRepository.class);
         dealPort = mock(DealPort.class);
         auditEventPort = mock(AuditEventPort.class);
+        captureAttemptService = mock(CaptureAttemptService.class);
 
         settlementService = new SettlementService(
                 invoiceService,
@@ -73,7 +76,8 @@ class SettlementServiceTest {
                 invoiceRepository,
                 paymentRepository,
                 dealPort,
-                auditEventPort
+                auditEventPort,
+                captureAttemptService
         );
 
         when(dealPort.getBuyerEmail(dealId)).thenReturn(buyerEmail);
@@ -307,6 +311,7 @@ class SettlementServiceTest {
         verify(invoiceService).recordPayment(eq("INV2-888"), eq(98000L), eq("USD"), anyString(), anyString());
         verify(dealPort).transitionDealStatus(dealId, DealStatus.ACCEPTED);
         verify(dealPort).transitionDealStatus(dealId, DealStatus.CLOSED);
+        verify(captureAttemptService).markCaptureAttempted(eq(payment.getId()), anyString());
     }
 
     @Test
@@ -520,5 +525,31 @@ class SettlementServiceTest {
         verify(dealPort).assertParty(dealId, buyerEmail);
         assertThat(state.paymentStatus()).isEqualTo(PaymentLifecycleStatus.AUTHORIZED);
         assertThat(state.paypalAuthorizationId()).isEqualTo("AUTH-READ");
+    }
+
+    @Test
+    void acceptDeliverablesBlocksWhenCaptureAttemptIsAlreadyOpen() {
+        PaymentEntity payment = new PaymentEntity(
+                UUID.randomUUID(),
+                dealId,
+                1,
+                PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-OPEN",
+                "AUTH-OPEN",
+                null,
+                Instant.now().plusSeconds(86400),
+                98000L,
+                "USD"
+        );
+        payment.setCaptureAttemptedAt(Instant.now().minusSeconds(30));
+        payment.setCaptureResolution(CaptureAttemptService.PENDING_RECONCILIATION);
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.of(payment));
+
+        assertThatThrownBy(() -> settlementService.acceptDeliverables(dealId, 1, "key-open", buyerEmail))
+                .isInstanceOf(SettlementConflictException.class)
+                .hasMessageContaining("awaiting reconciliation");
+
+        verify(orderService, never()).captureAuthorization(anyString(), anyLong(), anyString(), anyString());
+        verify(captureAttemptService, never()).markCaptureAttempted(any(), anyString());
     }
 }
