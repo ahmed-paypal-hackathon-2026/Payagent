@@ -2,7 +2,7 @@ spring:
   application:
     name: payagent-api
   datasource:
-    url: ${PAYAGENT_DB_URL:jdbc:postgresql://postgres:5432/payagent}
+    url: jdbc:${PAYAGENT_DB_URL:postgresql://postgres:5432/payagent}
     username: ${PAYAGENT_DB_USER:payagent}
     password: ${PAYAGENT_DB_PASSWORD:payagent}
   jpa:
@@ -48,4 +48,4 @@ spring:
     activate:
       on-profile: local
   datasource:
-    url: ${PAYAGENT_DB_URL:jdbc:postgresql://localhost:5432/payagent}
+    url: jdbc:${PAYAGENT_DB_URL:postgresql://localhost:5432/payagent}
