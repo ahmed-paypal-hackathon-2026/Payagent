@@ -17,11 +17,12 @@
 
   body {
     color: var(--foreground);
-    background-color: #f8fafc;
+    background-color: #f6f9fc;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.04) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.04) 0px, transparent 50%),
-      radial-gradient(at 50% 100%, rgba(244, 244, 245, 0.4) 0px, transparent 100%);
+      radial-gradient(circle at 10% 0%, rgba(0, 112, 186, 0.08) 0%, transparent 45%),
+      radial-gradient(circle at 90% 10%, rgba(0, 48, 135, 0.06) 0%, transparent 40%),
+      radial-gradient(circle at 50% 85%, rgba(0, 121, 193, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 80% 90%, rgba(20, 184, 166, 0.05) 0%, transparent 45%);
     background-attachment: fixed;
     font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     letter-spacing: -0.011em;
@@ -35,8 +36,8 @@
   }
 
   ::selection {
-    background-color: #a7f3d0;
-    color: #064e3b;
+    background-color: #bae6fd;
+    color: #0369a1;
   }
 }
 
@@ -49,13 +50,30 @@
   }
   .glass-card {
     background: rgba(255, 255, 255, 0.88);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
   }
-  .glow-emerald {
-    box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.15);
+  .paypal-gradient {
+    background: linear-gradient(135deg, #003087 0%, #0070ba 50%, #0079c1 100%);
   }
-  .glow-blue {
-    box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.15);
+  .paypal-gradient-subtle {
+    background: linear-gradient(135deg, rgba(0, 48, 135, 0.04) 0%, rgba(0, 112, 186, 0.07) 100%);
+  }
+  .paypal-glow {
+    box-shadow: 0 4px 20px -2px rgba(0, 112, 186, 0.25);
+  }
+  .badge-pulse {
+    animation: pulseGlow 2s infinite ease-in-out;
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.04);
   }
 }

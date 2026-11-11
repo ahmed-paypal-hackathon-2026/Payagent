@@ -98,10 +98,10 @@ function DealCard({ summary }: { summary: MockDealSummary }) {
         <div className="mt-5 flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
           <Link
             href={`/deals/${summary.dealId}`}
-            className="inline-flex min-h-9 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-slate-800 active:scale-95 transition-all group-hover:bg-emerald-700 group-hover:shadow-emerald-700/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+            className="inline-flex min-h-9 items-center gap-2 rounded-xl bg-gradient-to-r from-[#003087] to-[#0070ba] px-4 py-2 text-xs font-bold text-white shadow-sm shadow-blue-900/10 hover:shadow-md hover:shadow-blue-500/25 active:scale-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
           >
             <span>Enter Deal Room</span>
-            <svg className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
             </svg>
           </Link>
@@ -134,27 +134,27 @@ function MockDashboard() {
   return (
     <>
       <PageHeader
-        eyebrow="Demo environment"
+        eyebrow="PayPal Sandbox Escrow Environment"
         title={`Welcome back, ${currentUser.displayName}`}
         description={
           <>
-            Autonomous bilateral deal room with automated PayPal sandbox settlement and AI-bounded negotiation. Use <strong>Viewing as</strong> in the top bar to switch perspectives.
+            Autonomous bilateral deal room with automated PayPal sandbox settlement and AI-bounded negotiation. Use <strong>Perspective</strong> in the top bar to test actions as Buyer or Seller.
           </>
         }
         actions={
           <>
             <Link
               href="/intake"
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 active:scale-95 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-[#003087] via-[#0070ba] to-[#0079c1] px-4.5 py-2 text-xs font-bold text-white shadow-md shadow-sky-900/15 hover:shadow-lg hover:shadow-sky-500/25 active:scale-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
             >
-              <svg className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <svg className="h-4 w-4 text-cyan-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 4v16m8-8H4" />
               </svg>
               <span>Create buyer deal</span>
             </Link>
             <Link
               href="/join"
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-800 shadow-2xs hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200/90 bg-white/90 px-4.5 py-2 text-xs font-bold text-slate-800 shadow-2xs hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
             >
               <span>Join with invite</span>
             </Link>
@@ -164,49 +164,88 @@ function MockDashboard() {
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Negotiating", value: stats.active, tone: "text-sky-700 bg-sky-50/70 border-sky-100", hint: "Active offer rounds" },
-          { label: "Settlement stage", value: stats.settlement, tone: "text-emerald-700 bg-emerald-50/70 border-emerald-100", hint: "Agreed / In progress" },
-          { label: "Awaiting review", value: stats.review, tone: "text-amber-700 bg-amber-50/70 border-amber-100", hint: "Deliverables submitted" },
-          { label: "Disputed / Frozen", value: stats.disputed, tone: "text-rose-700 bg-rose-50/70 border-rose-100", hint: "Funds safely locked" },
+          {
+            label: "Negotiating",
+            value: stats.active,
+            gradient: "from-sky-500 to-blue-600",
+            bg: "bg-sky-50/70 border-sky-100",
+            textColor: "text-[#0070ba]",
+            hint: "Active offer rounds",
+            icon: "💬",
+          },
+          {
+            label: "Settlement stage",
+            value: stats.settlement,
+            gradient: "from-blue-600 to-indigo-600",
+            bg: "bg-blue-50/70 border-blue-100",
+            textColor: "text-[#003087]",
+            hint: "Invoice & hold active",
+            icon: "💳",
+          },
+          {
+            label: "Awaiting review",
+            value: stats.review,
+            gradient: "from-amber-500 to-orange-500",
+            bg: "bg-amber-50/70 border-amber-100",
+            textColor: "text-amber-700",
+            hint: "Deliverables submitted",
+            icon: "📦",
+          },
+          {
+            label: "Disputed / Frozen",
+            value: stats.disputed,
+            gradient: "from-rose-500 to-red-600",
+            bg: "bg-rose-50/70 border-rose-100",
+            textColor: "text-rose-700",
+            hint: "Funds held in escrow",
+            icon: "🛡️",
+          },
         ].map((stat) => (
-          <div key={stat.label} className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs transition-all hover:shadow-md">
+          <div
+            key={stat.label}
+            className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-2xs backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+          >
+            <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${stat.gradient}`} />
             <div className="flex items-center justify-between">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{stat.label}</p>
-              <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold ${stat.tone}`}>
+              <span className="text-lg">{stat.icon}</span>
+              <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold ${stat.bg} ${stat.textColor}`}>
                 {stat.hint}
               </span>
             </div>
-            <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">{stat.value}</p>
+            <p className="mt-2 text-xs font-bold uppercase tracking-wider text-slate-400">{stat.label}</p>
+            <p className="mt-1 text-3xl font-black tracking-tight text-slate-900 group-hover:scale-105 transition-transform origin-left">
+              {stat.value}
+            </p>
           </div>
         ))}
       </div>
 
       <div className="mb-8 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-800">🔒</span>
+        <div className="group relative overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br from-white via-white to-sky-50/60 p-5 shadow-2xs transition-all hover:shadow-md hover:border-sky-200">
+          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-800">
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-sky-100 text-sky-700 shadow-2xs">🔒</span>
             Zero-Knowledge Mandates
           </div>
-          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
-            Targets, reservation prices, and utility scores stay private on the client. Counterparties never see confidential thresholds.
+          <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+            Private limits, target pricing, and utility curves stay strictly confidential. Counterparties never see confidential thresholds.
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-sky-100 text-sky-800">⚡</span>
+        <div className="group relative overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-white via-white to-blue-50/60 p-5 shadow-2xs transition-all hover:shadow-md hover:border-blue-200">
+          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-800">
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-blue-100 text-[#003087] shadow-2xs">💳</span>
             Integer Minor Units
           </div>
-          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
-            All escrow, invoices, and payouts are tracked strictly as integer cents, eliminating floating-point rounding drifts.
+          <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+            All PayPal escrow holds, invoices, and payouts are tracked strictly as integer cents, eliminating floating-point rounding drift.
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-amber-100 text-amber-800">🛡</span>
+        <div className="group relative overflow-hidden rounded-2xl border border-amber-100 bg-gradient-to-br from-white via-white to-amber-50/60 p-5 shadow-2xs transition-all hover:shadow-md hover:border-amber-200">
+          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-800">
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-100 text-amber-800 shadow-2xs">⚡</span>
             Dispute Fund Freeze
           </div>
-          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
-            Raising a dispute instantly halts automated PayPal capture across both API and webhook workers until resolution.
+          <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+            Raising a dispute instantly freezes automated capture across both API calls and asynchronous webhooks until resolution.
           </p>
         </div>
       </div>

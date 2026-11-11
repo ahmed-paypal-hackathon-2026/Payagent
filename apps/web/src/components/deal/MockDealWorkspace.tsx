@@ -184,36 +184,45 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
 
   return (
     <div className="space-y-6">
-      <header className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-2xs">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1.5">
+      <header className="relative overflow-hidden rounded-3xl border border-sky-100 bg-white/95 p-6 shadow-2xs backdrop-blur">
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#003087] via-[#0070ba] to-[#0079c1]" />
+        
+        <div className="flex flex-wrap items-start justify-between gap-4 pt-1">
+          <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <Link
                 href="/"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900 transition"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100/80 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 hover:text-slate-900 transition"
               >
                 ← Dashboard
               </Link>
               <span className="text-slate-300">/</span>
-              <Badge tone="accent">{workspace.myRole === "BUYER" ? "Buyer perspective" : "Seller perspective"}</Badge>
+              <Badge tone={workspace.myRole === "BUYER" ? "info" : "success"}>
+                {workspace.myRole === "BUYER" ? "Buyer Perspective" : "Seller Perspective"}
+              </Badge>
               <DealStatusBadge status={workspace.status} />
               {workspace.disputeStatus !== "NONE" ? <DisputeStatusBadge status={workspace.disputeStatus} /> : null}
             </div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">{title || "Untitled deal"}</h1>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-              <span className="font-mono text-slate-400">{workspace.dealId}</span>
+            
+            <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{title || "Untitled deal"}</h1>
+            
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-500">
+              <span className="font-mono text-slate-400 select-all">{workspace.dealId}</span>
               <span>·</span>
-              <span>Counterparty: <strong className="text-slate-700">{counterpartyEmail ?? "Awaiting invite"}</strong></span>
+              <span>
+                Counterparty: <strong className="font-semibold text-slate-800">{counterpartyEmail ?? "Awaiting invite"}</strong>
+              </span>
               <span>·</span>
-              <span>{stopReasonLabel(workspace.stopReason)}</span>
+              <span className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-700">{stopReasonLabel(workspace.stopReason)}</span>
             </div>
           </div>
+          
           <div className="flex flex-wrap items-center gap-2">
             <CopyButton value={workspace.dealId} label="Copy deal ID" />
           </div>
         </div>
 
-        <div className="mt-6 border-t border-slate-100 pt-5">
+        <div className="mt-6 border-t border-slate-100/80 pt-5">
           <StatusStepper status={workspace.status} />
         </div>
       </header>

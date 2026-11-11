@@ -25,21 +25,24 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-6">
             <Link
               href="/"
-              className="group flex items-center gap-3 rounded-xl p-1 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+              className="group flex items-center gap-3 rounded-xl p-1 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-slate-950 via-slate-900 to-emerald-950 text-white shadow-md shadow-slate-900/10 transition-transform group-hover:scale-105">
-                <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+              <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#003087] via-[#0070ba] to-[#0079c1] text-white shadow-md shadow-sky-900/20 transition-all duration-300 group-hover:scale-105 group-hover:shadow-lg group-hover:shadow-sky-500/25">
+                <span className="font-black text-lg tracking-tight italic select-none">P</span>
+                <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-400" />
+                </span>
               </div>
               <span className="flex flex-col leading-tight">
-                <span className="flex items-center gap-1.5 text-base font-bold tracking-tight text-slate-900">
-                  Payagent
-                  <span className="rounded-md bg-emerald-100/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
-                    Pro
+                <span className="flex items-center gap-1.5 text-base font-extrabold tracking-tight text-slate-900">
+                  <span className="text-[#003087]">Pay</span>
+                  <span className="text-[#0070ba]">agent</span>
+                  <span className="rounded-md bg-sky-100/80 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[#003087]">
+                    Sandbox
                   </span>
                 </span>
-                <span className="text-[11px] font-medium text-slate-500">Autonomous deal room</span>
+                <span className="text-[11px] font-medium text-slate-500">Autonomous Bilateral Deal Room</span>
               </span>
             </Link>
 
