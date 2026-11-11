@@ -51,7 +51,11 @@ class AgreementControllerTest {
     private Deal makeDeal() {
         User b = makeUser("ac" + UUID.randomUUID() + "@test.com");
         User s = makeUser("ac" + UUID.randomUUID() + "@test.com");
-        return dealService.createDeal(b.getId(), s.getId());
+        Deal deal = dealService.createDeal(b.getId(), s.getId());
+        // Agreement proposal requires the deal to be in ACTIVE_NEGOTIATION before
+        // moving to TERMS_PENDING_ACCEPTANCE, per the legal state machine.
+        dealService.setStatus(deal.getId(), DealStatus.ACTIVE_NEGOTIATION);
+        return dealService.getDeal(deal.getId());
     }
 
     private String termsJson(long price, int delivery, int revisions) throws Exception {
@@ -62,7 +66,7 @@ class AgreementControllerTest {
 
     private UserDetails userDetails(User u) {
         return new org.springframework.security.core.userdetails.User(
-                u.getEmail(), "password", List.of());
+                u.getId().toString(), "password", List.of());
     }
 
     @Test
@@ -72,30 +76,33 @@ class AgreementControllerTest {
         User seller = userRepository.findById(deal.getSellerUserId()).orElseThrow();
 
         // Propose (as buyer)
-        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(termsJson(80000, 10, 3)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         AgreementSnapshotDTO snap = mapper.readValue(proposeResponse, AgreementSnapshotDTO.class);
         assertVersionAndHash(snap, 1);
 
         // Buyer accepts
-        mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", deal.getId())
+        mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", deal.getId(), snap.version())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
                                 new AcceptanceRequest(snap.version(), snap.termsHashSha256()))))
                 .andExpect(status().isOk());
 
         // Seller accepts -> deal becomes AGREED
-        mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", deal.getId())
+        mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", deal.getId(), snap.version())
                         .with(user(userDetails(seller)))
                         .requestAttr("userId", seller.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
                                 new AcceptanceRequest(snap.version(), snap.termsHashSha256()))))
@@ -106,19 +113,21 @@ class AgreementControllerTest {
     void accept_staleHash_returns409() throws Exception {
         Deal deal = makeDeal();
         User buyer = userRepository.findById(deal.getBuyerUserId()).orElseThrow();
-        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(termsJson(80000, 10, 3)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         AgreementSnapshotDTO snap = mapper.readValue(proposeResponse, AgreementSnapshotDTO.class);
 
-        mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", deal.getId())
+        mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", deal.getId(), snap.version())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
                                 new AcceptanceRequest(snap.version(), "0".repeat(64)))))
@@ -129,22 +138,37 @@ class AgreementControllerTest {
     void accept_staleVersion_returns409() throws Exception {
         Deal deal = makeDeal();
         User buyer = userRepository.findById(deal.getBuyerUserId()).orElseThrow();
-        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(termsJson(80000, 10, 3)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         AgreementSnapshotDTO snap = mapper.readValue(proposeResponse, AgreementSnapshotDTO.class);
 
-        mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", deal.getId())
+        // Propose v2 with different terms; v1 becomes stale.
+        String v2Response = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
+                        .contentType("application/json")
+                        .content(termsJson(85000, 12, 2)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        AgreementSnapshotDTO v2 = mapper.readValue(v2Response, AgreementSnapshotDTO.class);
+        assertVersionAndHash(v2, 2);
+
+        // Accepting the stale v1 must conflict.
+        mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", deal.getId(), snap.version())
+                        .with(user(userDetails(buyer)))
+                        .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
-                                new AcceptanceRequest(snap.version() + 1, snap.termsHashSha256()))))
+                                new AcceptanceRequest(snap.version(), snap.termsHashSha256()))))
                 .andExpect(status().isConflict());
     }
 
@@ -154,32 +178,35 @@ class AgreementControllerTest {
         User buyer = userRepository.findById(deal.getBuyerUserId()).orElseThrow();
 
         // Propose v1
-        String v1Response = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String v1Response = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(termsJson(80000, 10, 3)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         AgreementSnapshotDTO v1 = mapper.readValue(v1Response, AgreementSnapshotDTO.class);
         assertVersionAndHash(v1, 1);
 
         // Buyer accepts v1
-        mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", deal.getId())
+        mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", deal.getId(), v1.version())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
                                 new AcceptanceRequest(v1.version(), v1.termsHashSha256()))))
                 .andExpect(status().isOk());
 
         // Propose v2 (new terms)
-        String v2Response = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String v2Response = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(termsJson(85000, 12, 2)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         AgreementSnapshotDTO v2 = mapper.readValue(v2Response, AgreementSnapshotDTO.class);
         assertVersionAndHash(v2, 2);
@@ -189,9 +216,10 @@ class AgreementControllerTest {
         assertNullField(v2.sellerAcceptedAt());
 
         // v1 hash is now stale (v2 is latest)
-        mockMvc.perform(post("/api/v1/deals/{dealId}/acceptance", deal.getId())
+        mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/{version}/accept", deal.getId(), v1.version())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
                                 new AcceptanceRequest(v1.version(), v1.termsHashSha256()))))
@@ -203,21 +231,23 @@ class AgreementControllerTest {
         Deal deal = makeDeal();
         User buyer = userRepository.findById(deal.getBuyerUserId()).orElseThrow();
 
-        String r1 = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String r1 = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(termsJson(80000, 10, 3)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         AgreementSnapshotDTO a1 = mapper.readValue(r1, AgreementSnapshotDTO.class);
 
-        String r2 = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements", deal.getId())
+        String r2 = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
                         .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(termsJson(85000, 12, 2)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         AgreementSnapshotDTO a2 = mapper.readValue(r2, AgreementSnapshotDTO.class);
 

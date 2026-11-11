@@ -121,7 +121,7 @@ class MandateControllerTest {
     void createMandate_nonParticipant_returns403() throws Exception {
         User buyer = makeUser("ic7@test.com");
         User seller = makeUser("ic8@test.com");
-        User stranger = makeUser("stranger@test.com");
+        User stranger = makeUser("stranger-" + UUID.randomUUID() + "@test.com");
         Deal deal = makeDeal(buyer, seller);
 
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())

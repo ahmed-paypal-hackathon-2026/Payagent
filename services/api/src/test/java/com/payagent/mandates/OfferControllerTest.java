@@ -150,7 +150,7 @@ class OfferControllerTest {
     void createOffer_nonParticipant_returns403() throws Exception {
         User buyer = makeUser("oco7@test.com");
         User seller = makeUser("oco8@test.com");
-        User stranger = makeUser("stranger@test.com");
+        User stranger = makeUser("stranger-" + UUID.randomUUID() + "@test.com");
         Deal deal = makeDeal(buyer, seller);
         UUID dealId = deal.getId();
 

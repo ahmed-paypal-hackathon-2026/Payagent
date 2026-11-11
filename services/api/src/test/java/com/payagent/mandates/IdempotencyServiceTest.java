@@ -132,12 +132,13 @@ class IdempotencyServiceTest {
                 "All threads should complete: success=" + successCount + ", conflict=" + conflictCount
                         + ", other=" + otherCount);
 
-        // Exactly one idempotency record should exist in the database.
-        // Under concurrency, multiple threads may attempt the business logic,
-        // but the unique constraint on (idempotency_key, route) ensures only one record persists.
-        long recordCount = idempotencyRepository.count();
+        // Exactly one idempotency record should exist for this route in the database.
+        // Prior tests may have created unrelated records, so count only this route.
+        long recordCount = idempotencyRepository.findAll().stream()
+                .filter(r -> r.getRoute().equals(route))
+                .count();
         assertEquals(1, recordCount,
-                "Exactly one idempotency record should exist, found " + recordCount);
+                "Exactly one idempotency record should exist for route " + route + ", found " + recordCount);
     }
 
     private static void assertNotEqual(Object a, Object b) {
