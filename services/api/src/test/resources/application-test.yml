@@ -1,0 +1,27 @@
+# Test-only configuration (not used in production).
+# H2 in PostgreSQL mode with schema derived from JPA entities.
+# Migration and concurrency behavior against real PostgreSQL is verified
+# separately against a disposable PostgreSQL 16 instance (see Phase B17.4).
+spring:
+  datasource:
+    url: jdbc:h2:mem:payagent_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: b17-test-only-no-production-value
+    hikari:
+      maximum-pool-size: 48
+      minimum-idle: 4
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+payagent:
+  jwt:
+    secret: test-jwt-secret-for-b17-testing-only-not-production-32bytes
+  evidence:
+    signing-secret: test-development-evidence-signing-secret-not-production-32bytes

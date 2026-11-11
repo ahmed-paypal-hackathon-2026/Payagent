@@ -20,6 +20,26 @@ class CorsIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
+    void preflight_deployedFrontendOrigin_succeeds() throws Exception {
+        mockMvc.perform(options("/api/v1/auth/login")
+                        .header("Origin", "https://payagent-web-89qf.onrender.com")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "content-type,authorization,idempotency-key"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://payagent-web-89qf.onrender.com"));
+    }
+
+    @Test
+    void preflight_deployedFrontendOrigin_onPaymentRoute_succeeds() throws Exception {
+        mockMvc.perform(options("/api/v1/deals/11111111-1111-1111-1111-111111111111/settlement")
+                        .header("Origin", "https://payagent-web-89qf.onrender.com")
+                        .header("Access-Control-Request-Method", "GET")
+                        .header("Access-Control-Request-Headers", "authorization"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://payagent-web-89qf.onrender.com"));
+    }
+
+    @Test
     void preflight_allowedOrigin_succeeds() throws Exception {
         mockMvc.perform(options("/api/v1/auth/login")
                         .header("Origin", "http://localhost:3000")

@@ -97,26 +97,28 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
     private void handleSubscribe(StompHeaderAccessor accessor) {
         String destination = accessor.getDestination();
         if (destination == null) {
-            return;
+            throw new IllegalArgumentException("SUBSCRIBE destination is required");
         }
 
         Principal user = accessor.getUser();
         String callerEmail = user != null ? user.getName() : null;
+        if (callerEmail == null || callerEmail.isBlank()) {
+            log.warn("STOMP SUBSCRIBE rejected: missing authenticated principal for destination {}", destination);
+            throw new IllegalArgumentException("Unauthenticated SUBSCRIBE is not allowed for " + destination);
+        }
 
         if (destination.startsWith("/topic/deals/")) {
             String dealIdStr = destination.substring("/topic/deals/".length());
             try {
                 UUID dealId = UUID.fromString(dealIdStr);
-                if (callerEmail != null) {
-                    dealPort.assertParty(dealId, callerEmail);
-                    log.info("User {} authorized to subscribe to deal {}", callerEmail, dealId);
+                dealPort.assertParty(dealId, callerEmail);
+                log.info("User {} authorized to subscribe to deal {}", callerEmail, dealId);
 
-                    // Check for afterSeq header to trigger replay
-                    String afterSeqStr = accessor.getFirstNativeHeader("afterSeq");
-                    if (afterSeqStr != null && !afterSeqStr.isBlank()) {
-                        long afterSeq = Long.parseLong(afterSeqStr);
-                        auditEventService.replayForSubscriber(dealId, afterSeq, callerEmail);
-                    }
+                // Check for afterSeq header to trigger replay
+                String afterSeqStr = accessor.getFirstNativeHeader("afterSeq");
+                if (afterSeqStr != null && !afterSeqStr.isBlank()) {
+                    long afterSeq = Long.parseLong(afterSeqStr);
+                    auditEventService.replayForSubscriber(dealId, afterSeq, callerEmail);
                 }
             } catch (IllegalArgumentException e) {
                 log.warn("Invalid deal UUID in destination: {}", destination);
@@ -125,6 +127,10 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
                 log.warn("Subscription forbidden for user {} on {}: {}", callerEmail, destination, e.getMessage());
                 throw new SecurityException("Forbidden: Not authorized to subscribe to " + destination);
             }
+        } else if (!destination.startsWith("/user/")) {
+            // Any other server-side topic/queue requires authentication at minimum.
+            // There is no public unauthenticated subscription namespace.
+            log.info("Authenticated subscription admitted for {}", destination);
         }
     }
 }

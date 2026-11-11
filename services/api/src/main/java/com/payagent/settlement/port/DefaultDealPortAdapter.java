@@ -74,26 +74,22 @@ public class DefaultDealPortAdapter implements DealPort {
 
     @Override
     public void assertBuyer(UUID dealId, String callerEmail) {
-        if (callerEmail == null || callerEmail.isBlank()) {
-            return;
-        }
+        String resolved = resolveCallerEmail(dealId, callerEmail);
         String buyerEmail = getBuyerEmail(dealId);
-        if (!callerEmail.trim().equalsIgnoreCase(buyerEmail)) {
-            throw new SettlementForbiddenException("Caller " + callerEmail + " is not the authorized BUYER for deal " + dealId);
+        if (!resolved.equalsIgnoreCase(buyerEmail)) {
+            throw new SettlementForbiddenException("Caller " + resolved + " is not the authorized BUYER for deal " + dealId);
         }
     }
 
     @Override
     public void assertParty(UUID dealId, String callerEmail) {
-        if (callerEmail == null || callerEmail.isBlank()) {
-            return;
-        }
+        String resolved = resolveCallerEmail(dealId, callerEmail);
         String buyerEmail = getBuyerEmail(dealId);
         String sellerEmail = getSellerEmail(dealId);
-        boolean isParty = callerEmail.trim().equalsIgnoreCase(buyerEmail) ||
-                (sellerEmail != null && callerEmail.trim().equalsIgnoreCase(sellerEmail));
+        boolean isParty = resolved.equalsIgnoreCase(buyerEmail) ||
+                (sellerEmail != null && resolved.equalsIgnoreCase(sellerEmail));
         if (!isParty) {
-            throw new SettlementForbiddenException("Caller " + callerEmail + " is not a participant in deal " + dealId);
+            throw new SettlementForbiddenException("Caller " + resolved + " is not a participant in deal " + dealId);
         }
     }
 
@@ -152,6 +148,32 @@ public class DefaultDealPortAdapter implements DealPort {
             throw new SettlementNotFoundException("Deal buyer not found for deal " + dealId);
         }
         return emails.get(0);
+    }
+
+    /**
+     * Resolves the authenticated caller identity to a canonical email.
+     * The HTTP principal is the user's UUID, while service code compares
+     * emails. Accepting both keeps the comparison consistent and fail-closed.
+     */
+    private String resolveCallerEmail(UUID dealId, String caller) {
+        if (caller == null || caller.isBlank()) {
+            throw new SettlementForbiddenException("Authentication required for deal " + dealId);
+        }
+        String trimmed = caller.trim();
+        try {
+            UUID userId = UUID.fromString(trimmed);
+            List<String> emails = jdbcTemplate.query(
+                    "SELECT email FROM users WHERE id = ?",
+                    (rs, rowNum) -> rs.getString("email"),
+                    userId);
+            if (emails.isEmpty()) {
+                throw new SettlementForbiddenException("Authenticated user not found: " + userId);
+            }
+            return emails.get(0);
+        } catch (IllegalArgumentException e) {
+            // Not a UUID textual principal: treat as email.
+            return trimmed;
+        }
     }
 
     @Override

@@ -6,12 +6,13 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
 import java.util.Map;
+import java.util.List;
 
 public class DbUrlEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
     private static final String PROPERTY_NAME = "PAYAGENT_DB_URL";
     private static final String JDBC_PREFIX = "jdbc:";
-    private static final String POSTGRES_URI_PREFIX = "postgresql://";
+    private static final List<String> POSTGRES_URI_PREFIXES = List.of("postgresql://", "postgres://");
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -22,11 +23,14 @@ public class DbUrlEnvironmentPostProcessor implements EnvironmentPostProcessor {
         if (url.startsWith(JDBC_PREFIX)) {
             return;
         }
-        if (url.startsWith(POSTGRES_URI_PREFIX)) {
-            String jdbcUrl = JDBC_PREFIX + url;
-            Map<String, Object> map = Map.of(PROPERTY_NAME, jdbcUrl);
-            MapPropertySource source = new MapPropertySource("dbUrlConverter", map);
-            environment.getPropertySources().addFirst(source);
+        for (String prefix : POSTGRES_URI_PREFIXES) {
+            if (url.startsWith(prefix)) {
+                String jdbcUrl = "jdbc:postgresql://" + url.substring(prefix.length());
+                Map<String, Object> map = Map.of(PROPERTY_NAME, jdbcUrl);
+                MapPropertySource source = new MapPropertySource("dbUrlConverter", map);
+                environment.getPropertySources().addFirst(source);
+                return;
+            }
         }
     }
 }

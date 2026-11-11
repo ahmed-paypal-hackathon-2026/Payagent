@@ -115,6 +115,20 @@ class WebSocketRealtimeTest {
     }
 
     @Test
+    void subscribe_missingPrincipal_isRejected() {
+        UUID dealId = UUID.randomUUID();
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setDestination("/topic/deals/" + dealId);
+
+        Message<?> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+        MessageChannel channel = mock(MessageChannel.class);
+
+        assertThatThrownBy(() -> interceptor.preSend(message, channel))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unauthenticated SUBSCRIBE");
+    }
+
+    @Test
     void subscribe_dealChannel_nonParticipantRejected() {
         UUID dealId = UUID.randomUUID();
         String intruderEmail = "intruder@test.local";

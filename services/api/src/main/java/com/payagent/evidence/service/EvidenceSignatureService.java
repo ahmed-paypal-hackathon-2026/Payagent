@@ -3,26 +3,63 @@ package com.payagent.evidence.service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
+import org.springframework.core.env.Profiles;
 
 @Service
 public class EvidenceSignatureService {
 
     public static final long DEFAULT_TTL_SECONDS = 900; // 15 minutes
+    private static final int MIN_SECRET_BYTES = 32;
+
+    private static final Set<String> REJECTED_PLACEHOLDERS = Set.of(
+            "local-evidence-signing-secret-default-32-bytes",
+            "local-evidence-signing-secret",
+            "change-me-evidence-hmac-secret",
+            "change-me",
+            "evidence-signing-secret",
+            "default",
+            "test",
+            "secret"
+    );
 
     private final byte[] secretBytes;
 
     public EvidenceSignatureService(
-            @Value("${payagent.evidence.signing-secret:local-evidence-signing-secret-default-32-bytes}") String secret) {
-        String effectiveSecret = (secret == null || secret.isBlank())
-                ? "local-evidence-signing-secret-default-32-bytes"
-                : secret;
-        this.secretBytes = effectiveSecret.getBytes(StandardCharsets.UTF_8);
+            @Value("${payagent.evidence.signing-secret:}") String secret,
+            Environment environment) {
+        boolean localProfile = environment.acceptsProfiles(Profiles.of("local", "dev", "test"));
+
+        if (secret == null || secret.isBlank()) {
+            if (localProfile) {
+                throw new IllegalStateException(
+                        "PAYAGENT_EVIDENCE_SIGNING_SECRET must be set for local development too. "
+                                + "Use a random value of at least 32 bytes; do not reuse the documented placeholder.");
+            }
+            throw new IllegalStateException(
+                    "PAYAGENT_EVIDENCE_SIGNING_SECRET is required in production and must not be blank.");
+        }
+
+        String normalized = secret.trim();
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (REJECTED_PLACEHOLDERS.contains(lower)
+                || lower.startsWith("change-me")
+                || normalized.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "PAYAGENT_EVIDENCE_SIGNING_SECRET is missing, too short, or an insecure placeholder. "
+                            + "Provide a random secret of at least 32 bytes.");
+        }
+
+        this.secretBytes = normalized.getBytes(StandardCharsets.UTF_8);
     }
 
     public String generateDownloadUrl(UUID dealId, UUID evidenceId) {
