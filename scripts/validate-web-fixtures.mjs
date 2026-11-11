@@ -1,7 +1,7 @@
 /**
- * Validates that the Deal Room fixture data matches the canonical contracts
- * and that the end-to-end fixture flow is consistent (offer history →
- * agreement → dual acceptance → identical termsHashSha256).
+ * Validates that the Deal Room architecture still uses the canonical contracts
+ * and the expected component layout (DealWorkspaceClient -> MockDealWorkspace /
+ * LiveDealConsole -> AgreementPanel / OfferComparison / SettlementPanel).
  *
  * Run: node scripts/validate-web-fixtures.mjs
  */
@@ -27,6 +27,23 @@ function isNonEmptyString(v) {
 
 function isNonNegativeInt(v) {
   return Number.isInteger(v) && v >= 0;
+}
+
+async function readAll(label, files) {
+  const contents = await Promise.all(
+    files.map(async (file) => {
+      try {
+        return await readFile(path.join(root, file), "utf8");
+      } catch {
+        return "";
+      }
+    }),
+  );
+  if (contents.every((c) => c === "")) {
+    check(label, false);
+    return "";
+  }
+  return contents.join("\n");
 }
 
 function validateStructuredTerms(terms, label) {
@@ -74,22 +91,17 @@ check("06-agreement.termsHashSha256 is 64 hex chars", /^[0-9a-f]{64}$/.test(snap
 check("06-agreement.version is positive", Number.isInteger(snapshot.version) && snapshot.version >= 1);
 check("06-agreement.buyerAcceptedAt is present", isNonEmptyString(snapshot.buyerAcceptedAt));
 check("06-agreement.sellerAcceptedAt is present", isNonEmptyString(snapshot.sellerAcceptedAt));
-check(
-  "06-agreement.dealId is non-empty",
-  isNonEmptyString(snapshot.dealId),
-);
+check("06-agreement.dealId is non-empty", isNonEmptyString(snapshot.dealId));
 
-// --- 3. Cross-fixture consistency: agreement price is within the buyer's mandate
-// The fixture agreement (98000) must be >= buyer intake (90000) — the seller
-// counteroffer raised the price and the buyer accepted.
+// --- 3. Cross-fixture consistency: agreement price inside buyer mandate
 check(
   "agreement price (98000) >= intake price (90000)",
   snapshot.canonicalTerms.priceMinorUnits >= intake.priceMinorUnits,
   `got ${snapshot.canonicalTerms.priceMinorUnits} vs ${intake.priceMinorUnits}`,
 );
 
-// --- 4. The Deal Room page component exists and exports the expected route
-const dealRoomPath = path.join(
+// --- 4. Deal room architecture: route -> client wrapper -> mode-specific workspace
+const dealRoomPage = path.join(
   root,
   "apps",
   "web",
@@ -101,49 +113,65 @@ const dealRoomPath = path.join(
 );
 let dealRoomSource = "";
 try {
-  dealRoomSource = await readFile(dealRoomPath, "utf8");
-  check("Deal Room page exists", true);
+  dealRoomSource = await readFile(dealRoomPage, "utf8");
+  check("Deal Room route exists", true);
 } catch {
-  check("Deal Room page exists", false, `missing ${dealRoomPath}`);
+  check("Deal Room route exists", false, `missing ${dealRoomPage}`);
 }
 
-if (dealRoomSource) {
-  check(
-    "Deal Room renders termsHashSha256",
-    dealRoomSource.includes("termsHashSha256"),
-  );
-  check("Deal Room renders dual acceptance", dealRoomSource.includes("buyerAcceptedAt"));
-  check("Deal Room renders offer history", dealRoomSource.includes("offers"));
-  check("Deal Room has accept button", dealRoomSource.includes("accept-button"));
-}
+const dealRoomComponents = await readAll("Deal Room components exist", [
+  "apps/web/src/components/DealWorkspaceClient.tsx",
+  "apps/web/src/components/deal/MockDealWorkspace.tsx",
+  "apps/web/src/components/deal/LiveDealConsole.tsx",
+  "apps/web/src/components/deal/AgreementPanel.tsx",
+  "apps/web/src/components/deal/OfferComparison.tsx",
+]);
 
-// --- 5. The fixture-backed API client exists
+check(
+  "Deal Room wrapper chooses mock or live workspace at runtime",
+  dealRoomComponents.includes("DealWorkspaceClient") &&
+    dealRoomComponents.includes("MockDealWorkspace") &&
+    dealRoomComponents.includes("LiveDealConsole"),
+);
+check(
+  "Deal Room renders termsHashSha256 and dual acceptance (AgreementPanel)",
+  dealRoomComponents.includes("termsHashSha256") &&
+    dealRoomComponents.includes("buyerAcceptedAt") &&
+    dealRoomComponents.includes("sellerAcceptedAt"),
+);
+check(
+  "Deal Room renders offer history (OfferComparison / LiveDealConsole / MockDealWorkspace)",
+  dealRoomComponents.includes("offers") &&
+    dealRoomComponents.includes("OfferComparison"),
+);
+check(
+  "Deal Room provides live accept path wired to acceptAgreement",
+  dealRoomComponents.includes("acceptAgreement") && dealRoomComponents.includes("AgreementPanel"),
+);
+
+// --- 5. The fixture-backed API client exists and routes through runtime config
 const apiPath = path.join(root, "apps", "web", "src", "lib", "api.ts");
 let apiSource = "";
 try {
   apiSource = await readFile(apiPath, "utf8");
-  check("API client exists", true);
+  check("Fixture-backed API client exists", true);
 } catch {
-  check("API client exists", false, `missing ${apiPath}`);
+  check("Fixture-backed API client exists", false, `missing ${apiPath}`);
 }
 
 if (apiSource) {
   check("API client uses canonical contracts", apiSource.includes("@/types/contracts"));
-  check("API client supports NEXT_PUBLIC_USE_MOCKS", apiSource.includes("NEXT_PUBLIC_USE_MOCKS"));
+  check("API client reads runtime configuration", apiSource.includes("getClientPublicConfig"));
   check("API client implements acceptAgreement", apiSource.includes("acceptAgreement"));
   check("API client implements fetchWorkspace", apiSource.includes("fetchWorkspace"));
 }
 
-// --- 6. Root page links to the Deal Room
-const rootPagePath = path.join(root, "apps", "web", "src", "app", "page.tsx");
-try {
-  const rootPage = await readFile(rootPagePath, "utf8");
-  check("Root page links to Deal Room", rootPage.includes("/deals/"));
-} catch {
-  check("Root page links to Deal Room", false, "missing root page");
-}
+// --- 6. Dashboard links to deal rooms
+const dashboardSource = await readAll("Dashboard component exists", [
+  "apps/web/src/components/Dashboard.tsx",
+]);
+check("Dashboard links to /deals/<id>", dashboardSource.includes("/deals/"));
 
-console.log("");
 if (failures > 0) {
   console.error(`${failures} check(s) failed.`);
   process.exit(1);

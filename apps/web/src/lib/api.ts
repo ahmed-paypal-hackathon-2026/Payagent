@@ -141,6 +141,8 @@ export const fixtureWorkspace: DealWorkspaceDTO = {
   disputeReason: null,
 };
 
+import { getClientPublicConfig } from "./runtime-config";
+
 /**
  * Loads the deal workspace. In mock mode this resolves fixture data after a
  * short delay to exercise loading states; against the live backend this
@@ -149,10 +151,9 @@ export const fixtureWorkspace: DealWorkspaceDTO = {
 export async function fetchWorkspace(
   dealId: string,
 ): Promise<DealWorkspaceDTO> {
-  const useMocks = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
+  const { useMocks, apiBaseUrl } = getClientPublicConfig();
   if (!useMocks) {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-    const res = await fetch(`${base}/api/v1/deals/${dealId}`, {
+    const res = await fetch(`${apiBaseUrl}/api/v1/deals/${dealId}`, {
       headers: { "Content-Type": "application/json" },
       credentials: "include",
     });
@@ -176,10 +177,9 @@ export async function acceptAgreement(
   termsHashSha256: string,
   role: "BUYER" | "SELLER",
 ): Promise<AgreementSnapshotDTO> {
-  const useMocks = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
+  const { useMocks, apiBaseUrl } = getClientPublicConfig();
   if (!useMocks) {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-    const res = await fetch(`${base}/api/v1/deals/${dealId}/acceptance`, {
+    const res = await fetch(`${apiBaseUrl}/api/v1/deals/${dealId}/acceptance`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

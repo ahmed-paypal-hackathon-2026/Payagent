@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, API_BASE_URL, USE_MOCKS } from "@/lib/api/client";
+import { api, getApiBaseUrl, getUseMocks } from "@/lib/api/client";
 import type { AuthResponse } from "@/lib/api/types";
 import { clearAllLiveDealSessions } from "@/lib/live-session";
 
@@ -30,7 +30,8 @@ interface SessionContextValue {
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const mode: AppMode = USE_MOCKS ? "mock" : "live";
+  const apiBaseUrl = getApiBaseUrl();
+  const mode: AppMode = getUseMocks() ? "mock" : "live";
   const [liveSession, setLiveSession] = useState<AuthResponse | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -96,13 +97,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       mode,
       ready,
-      apiBaseUrl: API_BASE_URL,
+      apiBaseUrl,
       liveSession,
       login,
       register,
       logout,
     }),
-    [liveSession, login, logout, mode, ready, register],
+    [apiBaseUrl, liveSession, login, logout, mode, ready, register],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

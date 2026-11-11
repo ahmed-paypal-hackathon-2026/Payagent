@@ -7,13 +7,26 @@ import type {
   SettlementStateDTO,
   StructuredTermsDTO,
 } from "@/types/contracts";
+import { getClientPublicConfig } from "@/lib/runtime-config";
 import type { AuthResponse, CreateDealResponse, IntakeResponse } from "./types";
 
-export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS !== "false";
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080").replace(
-  /\/+$/,
-  "",
-);
+export function getUseMocks(): boolean {
+  return getClientPublicConfig().useMocks;
+}
+
+export function getApiBaseUrl(): string {
+  const configured = getClientPublicConfig().apiBaseUrl;
+  if (configured) {
+    return configured;
+  }
+  // Local development convenience only. Production runtime configuration is
+  // enforced by getClientPublicConfig(), which throws on missing/invalid
+  // values, so this fallback can never run in production.
+  if (process.env.NODE_ENV !== "production" || typeof window === "undefined") {
+    return "http://localhost:8080";
+  }
+  throw new Error("Production configuration error: API base URL is missing in the runtime configuration.");
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -32,9 +45,9 @@ export class ApiError extends Error {
 export class ApiNetworkError extends Error {
   readonly endpoint: string;
 
-  constructor(endpoint: string) {
+  constructor(endpoint: string, apiBaseUrl = getApiBaseUrl()) {
     super(
-      `Could not reach the Payagent API at ${API_BASE_URL}. Check that the backend is running and that its CORS policy allows this origin.`,
+      `Could not reach the Payagent API at ${apiBaseUrl}. Check that the backend is running and that its CORS policy allows this origin.`,
     );
     this.name = "ApiNetworkError";
     this.endpoint = endpoint;
@@ -115,14 +128,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: options.method ?? (options.form ? "POST" : "GET"),
       headers,
       body: payload,
       cache: "no-store",
     });
   } catch {
-    throw new ApiNetworkError(path);
+    throw new ApiNetworkError(path, getApiBaseUrl());
   }
 
   if (!response.ok) {

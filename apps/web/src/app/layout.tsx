@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { AppShell } from "@/components/AppShell";
+import { getServerPublicConfig, serializePublicConfigForInlineScript } from "@/lib/runtime-config";
 import { Providers } from "./providers";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -26,9 +29,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const publicConfig = getServerPublicConfig();
+
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <script
+          id="payagent-public-config"
+          dangerouslySetInnerHTML={{
+            __html: `window.__PAYAGENT_CONFIG__=${serializePublicConfigForInlineScript(publicConfig)};`,
+          }}
+        />
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>
