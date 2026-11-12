@@ -52,7 +52,13 @@ Project terms can change across messages while the invoice and payment record si
 
 ## ☕ The Northline Coffee deal
 
-Northline Coffee needs a launch page. Fieldwork Digital can deliver it in 20 days with two rounds of revisions. The first agreement is $980.00. A one-cent change shows how Payagent keeps both parties working from the same terms.
+![Illustration of a café owner and a web designer reviewing a launch brief after closing](docs/member-f/readme-media/northline-coffee.jpg)
+
+*An illustrated opening to the fictional Northline Coffee demo.*
+
+After closing, Northline Coffee’s owner sits down with a designer from Fieldwork Digital to plan the café’s launch page. They settle on a 20-day delivery window, two rounds of revisions, and an initial price of **$980.00**.
+
+The owner approves those terms. Then the price changes by a cent. The screenshots below show what each person sees as they review the new version and approve it.
 
 ### 📝 The buyer accepts $980.00
 
