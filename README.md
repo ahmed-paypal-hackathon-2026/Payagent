@@ -52,13 +52,11 @@ Project terms can change across messages while the invoice and payment record si
 
 ## ☕ The Northline Coffee deal
 
-![Illustration of a café owner and a web designer reviewing a launch brief after closing](docs/member-f/readme-media/northline-coffee.jpg)
+![Three illustrated panels showing the launch brief, the original $980.00 agreement, and the $980.01 revision awaiting fresh approvals](docs/member-f/readme-media/northline-coffee.jpg)
 
 *An illustrated opening to the fictional Northline Coffee demo.*
 
-After closing, Northline Coffee’s owner sits down with a designer from Fieldwork Digital to plan the café’s launch page. They settle on a 20-day delivery window, two rounds of revisions, and an initial price of **$980.00**.
-
-The owner approves those terms. Then the price changes by a cent. The screenshots below show what each person sees as they review the new version and approve it.
+Northline Coffee asks Fieldwork Digital to build a launch page. The initial terms are **$980.00**, 20 days, and two rounds of revisions. Northline approves, then the price changes by a cent. The workspace screenshots show how that change puts the new agreement back up for approval.
 
 ### 📝 The buyer accepts $980.00
 
