@@ -168,6 +168,8 @@ The team used the PayPal AI Toolkit for development guidance. At runtime, the ba
 
 ## 🛡️ Security and trust boundaries
 
+![Bounded negotiation. The server checks proposed offers against private limits and distinguishes offers within those limits from offers outside them.](docs/member-f/readme-media/bounded-negotiation.jpg)
+
 - **Private negotiation limits.** The backend scopes each mandate to its owner and checks deal membership when serving workspace data.
 - **Versioned consent.** Agreement terms are canonicalized and hashed with SHA-256. Each approval binds to a version and its hash. Revised terms require fresh approval.
 - **Server-side decisions.** The backend checks proposed terms against mandates and handles financial amounts in integer minor units. PayPal credentials stay on the server.
