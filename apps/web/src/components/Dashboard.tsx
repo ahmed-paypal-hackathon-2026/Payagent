@@ -26,60 +26,94 @@ function scenarioHint(summary: MockDealSummary): string {
 }
 
 function DealCard({ summary }: { summary: MockDealSummary }) {
+  const isBuyer = summary.myRole === "BUYER";
+
   return (
-    <Card
-      className={
+    <div
+      className={`group relative overflow-hidden rounded-2xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${
         summary.status === "DISPUTED"
-          ? "border-rose-200 shadow-sm"
+          ? "border-rose-200 bg-white ring-1 ring-rose-100/80 hover:border-rose-300"
           : summary.status === "TERMS_PENDING_ACCEPTANCE" || summary.status === "DELIVERABLES_SUBMITTED"
-            ? "border-amber-200 shadow-sm"
-            : undefined
-      }
+            ? "border-amber-200 bg-white ring-1 ring-amber-100/80 hover:border-amber-300"
+            : "border-slate-200/90 bg-white hover:border-slate-300 shadow-2xs"
+      }`}
     >
-      <CardBody className="flex h-full flex-col gap-4">
+      {/* Top Accent Gradient Bar */}
+      <div
+        className={`h-1.5 w-full ${
+          summary.status === "DISPUTED"
+            ? "bg-gradient-to-r from-rose-500 to-amber-500"
+            : summary.status === "AGREED" || summary.status === "ACCEPTED" || summary.status === "CLOSED"
+              ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+              : isBuyer
+                ? "bg-gradient-to-r from-sky-500 to-indigo-500"
+                : "bg-gradient-to-r from-emerald-500 to-cyan-500"
+        }`}
+      />
+
+      <div className="flex h-full flex-col p-5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              {summary.myRole === "BUYER" ? "Buyer workspace" : "Seller workspace"}
-            </p>
-            <h3 className="mt-0.5 truncate text-base font-semibold text-slate-900">{summary.title}</h3>
-            <p className="mt-1 font-mono text-[11px] text-slate-500">{summary.dealId}</p>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                isBuyer ? "bg-sky-50 text-sky-700 border border-sky-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isBuyer ? "bg-sky-500" : "bg-emerald-500"}`} />
+              {isBuyer ? "Buyer Workspace" : "Seller Workspace"}
+            </span>
+            <h3 className="mt-2 truncate text-base font-bold text-slate-900 group-hover:text-emerald-700 transition">
+              {summary.title}
+            </h3>
+            <p className="mt-0.5 font-mono text-[10px] text-slate-400 select-all">{summary.dealId}</p>
           </div>
           <DealStatusBadge status={summary.status} />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <InvoiceStatusBadge status={summary.settlement.invoiceStatus} />
           <PaymentStatusBadge status={summary.settlement.paymentStatus} />
-          <Badge tone="neutral">{summary.offerCount} offers</Badge>
+          <Badge tone="neutral">{summary.offerCount} rounds</Badge>
         </div>
 
-        <p className="text-sm leading-relaxed text-slate-600">{scenarioHint(summary)}</p>
-
-        <dl className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-          <div>
-            <dt className="font-medium text-slate-500">Counterparty</dt>
-            <dd className="truncate text-slate-800">{summary.counterpartyEmail ?? "Not joined yet"}</dd>
+        <div className="mt-3 rounded-xl bg-slate-50/90 p-3 border border-slate-100 text-xs text-slate-600">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+            <span>Milestone Target</span>
           </div>
-          <div>
-            <dt className="font-medium text-slate-500">Updated</dt>
-            <dd className="text-slate-800">{formatDateTime(summary.updatedAt)}</dd>
+          <p className="mt-1 text-slate-600 leading-relaxed">{scenarioHint(summary)}</p>
+        </div>
+
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-xl bg-slate-50/50 p-2.5 border border-slate-100/60">
+            <dt className="text-[10px] uppercase font-bold text-slate-400">Counterparty</dt>
+            <dd className="mt-0.5 truncate font-semibold text-slate-800">{summary.counterpartyEmail ?? "Awaiting invite"}</dd>
+          </div>
+          <div className="rounded-xl bg-slate-50/50 p-2.5 border border-slate-100/60">
+            <dt className="text-[10px] uppercase font-bold text-slate-400">Activity</dt>
+            <dd className="mt-0.5 font-semibold text-slate-800">{formatDateTime(summary.updatedAt)}</dd>
           </div>
         </dl>
 
-        <div className="mt-auto flex items-center justify-between gap-3 pt-1">
+        <div className="mt-5 flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
           <Link
             href={`/deals/${summary.dealId}`}
-            className="inline-flex min-h-9 items-center rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            className="inline-flex min-h-9 items-center gap-2 rounded-xl bg-gradient-to-r from-[#003087] to-[#0070ba] px-4 py-2 text-xs font-bold text-white shadow-sm shadow-blue-900/10 hover:shadow-md hover:shadow-blue-500/25 active:scale-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
           >
-            Open workspace
+            <span>Enter Deal Room</span>
+            <svg className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
           </Link>
           {summary.disputeStatus !== "NONE" ? (
-            <span className="text-[11px] font-semibold text-rose-700">Dispute {summary.disputeStatus.toLowerCase()}</span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 border border-rose-100">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
+              Dispute {summary.disputeStatus.toLowerCase()}
+            </span>
           ) : null}
         </div>
-      </CardBody>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -100,58 +134,120 @@ function MockDashboard() {
   return (
     <>
       <PageHeader
-        eyebrow="Demo workspace"
-        title={`Good to see you, ${currentUser.displayName}`}
+        eyebrow="PayPal Sandbox Escrow Environment"
+        title={`Welcome back, ${currentUser.displayName}`}
         description={
           <>
-            Four synthetic scenarios cover negotiation, dual consent, sandbox settlement, deliverable review, and a
-            capture-freezing dispute. Use <strong>Viewing as</strong> in the header to compare the buyer and seller views.
+            Autonomous bilateral deal room with automated PayPal sandbox settlement and AI-bounded negotiation. Use <strong>Perspective</strong> in the top bar to test actions as Buyer or Seller.
           </>
         }
         actions={
           <>
             <Link
               href="/intake"
-              className="inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-[#003087] via-[#0070ba] to-[#0079c1] px-4.5 py-2 text-xs font-bold text-white shadow-md shadow-sky-900/15 hover:shadow-lg hover:shadow-sky-500/25 active:scale-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
             >
-              Start a buyer deal
+              <svg className="h-4 w-4 text-cyan-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Create buyer deal</span>
             </Link>
             <Link
               href="/join"
-              className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200/90 bg-white/90 px-4.5 py-2 text-xs font-bold text-slate-800 shadow-2xs hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
             >
-              Join with invite
+              <span>Join with invite</span>
             </Link>
           </>
         }
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Negotiating", value: stats.active, tone: "text-sky-800" },
-          { label: "Settlement stage", value: stats.settlement, tone: "text-emerald-800" },
-          { label: "Awaiting review", value: stats.review, tone: "text-amber-800" },
-          { label: "Disputed", value: stats.disputed, tone: "text-rose-800" },
+          {
+            label: "Negotiating",
+            value: stats.active,
+            gradient: "from-sky-500 to-blue-600",
+            bg: "bg-sky-50/70 border-sky-100",
+            textColor: "text-[#0070ba]",
+            hint: "Active offer rounds",
+            icon: "💬",
+          },
+          {
+            label: "Settlement stage",
+            value: stats.settlement,
+            gradient: "from-blue-600 to-indigo-600",
+            bg: "bg-blue-50/70 border-blue-100",
+            textColor: "text-[#003087]",
+            hint: "Invoice & hold active",
+            icon: "💳",
+          },
+          {
+            label: "Awaiting review",
+            value: stats.review,
+            gradient: "from-amber-500 to-orange-500",
+            bg: "bg-amber-50/70 border-amber-100",
+            textColor: "text-amber-700",
+            hint: "Deliverables submitted",
+            icon: "📦",
+          },
+          {
+            label: "Disputed / Frozen",
+            value: stats.disputed,
+            gradient: "from-rose-500 to-red-600",
+            bg: "bg-rose-50/70 border-rose-100",
+            textColor: "text-rose-700",
+            hint: "Funds held in escrow",
+            icon: "🛡️",
+          },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
-            <p className={`mt-1 text-2xl font-bold ${stat.tone}`}>{stat.value}</p>
+          <div
+            key={stat.label}
+            className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-2xs backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+          >
+            <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${stat.gradient}`} />
+            <div className="flex items-center justify-between">
+              <span className="text-lg">{stat.icon}</span>
+              <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold ${stat.bg} ${stat.textColor}`}>
+                {stat.hint}
+              </span>
+            </div>
+            <p className="mt-2 text-xs font-bold uppercase tracking-wider text-slate-400">{stat.label}</p>
+            <p className="mt-1 text-3xl font-black tracking-tight text-slate-900 group-hover:scale-105 transition-transform origin-left">
+              {stat.value}
+            </p>
           </div>
         ))}
       </div>
 
-      <div className="mb-6 grid gap-3 lg:grid-cols-3">
-        <Alert tone="info" title="Privacy by role">
-          Only <code className="rounded bg-white/70 px-1">myMandate</code> is rendered. The counterparty limits, targets,
-          and forbidden terms never appear in the shared workspace view.
-        </Alert>
-        <Alert tone="info" title="Money stays integral">
-          Prices are stored and sent as integer minor units. Formatting happens at display time without floating-point
-          arithmetic.
-        </Alert>
-        <Alert tone="info" title="Explicitly simulated">
-          Demo actions, hashes, and IDs are labelled. In live mode the UI only shows values returned by the backend.
-        </Alert>
+      <div className="mb-8 grid gap-3 sm:grid-cols-3">
+        <div className="group relative overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br from-white via-white to-sky-50/60 p-5 shadow-2xs transition-all hover:shadow-md hover:border-sky-200">
+          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-800">
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-sky-100 text-sky-700 shadow-2xs">🔒</span>
+            Zero-Knowledge Mandates
+          </div>
+          <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+            Private limits, target pricing, and utility curves stay strictly confidential. Counterparties never see confidential thresholds.
+          </p>
+        </div>
+        <div className="group relative overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-white via-white to-blue-50/60 p-5 shadow-2xs transition-all hover:shadow-md hover:border-blue-200">
+          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-800">
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-blue-100 text-[#003087] shadow-2xs">💳</span>
+            Integer Minor Units
+          </div>
+          <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+            All PayPal escrow holds, invoices, and payouts are tracked strictly as integer cents, eliminating floating-point rounding drift.
+          </p>
+        </div>
+        <div className="group relative overflow-hidden rounded-2xl border border-amber-100 bg-gradient-to-br from-white via-white to-amber-50/60 p-5 shadow-2xs transition-all hover:shadow-md hover:border-amber-200">
+          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-800">
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-100 text-amber-800 shadow-2xs">⚡</span>
+            Dispute Fund Freeze
+          </div>
+          <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+            Raising a dispute instantly freezes automated capture across both API calls and asynchronous webhooks until resolution.
+          </p>
+        </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

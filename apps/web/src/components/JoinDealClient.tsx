@@ -129,41 +129,54 @@ export function JoinDealClient() {
         </Alert>
       )}
 
-      <Card className="max-w-2xl">
-        <CardHeader title="Invite details" description="Ask the buyer for both values through a private channel." />
-        <CardBody>
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+      <Card className="max-w-2xl border-sky-100 bg-white/95 shadow-sm backdrop-blur">
+        <div className="h-1.5 w-full bg-gradient-to-r from-[#003087] via-[#0070ba] to-[#0079c1]" />
+        <CardHeader
+          title={
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-sky-100 text-xs font-bold text-[#003087]">
+                🤝
+              </span>
+              <span>Private Deal Credentials</span>
+            </div>
+          }
+          description="Enter the Deal ID and private token received from the buyer."
+        />
+        <CardBody className="p-6">
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             {error ? <Alert tone="error">{error}</Alert> : null}
-            <Field label="Deal ID" htmlFor="join-deal-id" required>
+            <Field label="Deal Identifier" htmlFor="join-deal-id" hint="Standard UUID shared by the buyer." required>
               <Input
                 id="join-deal-id"
                 value={dealId}
                 onChange={(event) => setDealId(event.target.value)}
-                placeholder="deal UUID from the buyer"
+                placeholder="e.g. 5b9c2a11-..."
                 autoComplete="off"
+                className="font-mono"
               />
             </Field>
             <Field
-              label="Invite token"
+              label="Confidential Invite Token"
               htmlFor="join-invite-token"
-              hint="Kept out of the URL, logs, and workspace payloads."
+              hint="Kept strictly confidential out of URL parameters, logs, and external payloads."
               required
             >
               <Input
                 id="join-invite-token"
                 value={inviteToken}
                 onChange={(event) => setInviteToken(event.target.value)}
-                placeholder="Private invite token"
+                placeholder="Paste the secret invite token"
                 autoComplete="off"
                 spellCheck={false}
+                className="font-mono"
               />
             </Field>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 pt-2">
               <Button type="submit" loading={submitting}>
-                Join deal
+                Connect to Deal Room →
               </Button>
-              <Link href="/" className="text-xs font-semibold text-slate-600 underline underline-offset-2 hover:text-slate-900">
-                Back to dashboard
+              <Link href="/" className="text-xs font-bold text-slate-500 hover:text-slate-900 transition">
+                Return to Dashboard
               </Link>
             </div>
           </form>

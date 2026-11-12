@@ -21,46 +21,54 @@ export function StatusStepper({ status }: { status: DealStatus }) {
   const special = status === "DISPUTED" || status === "CANCELLED";
 
   return (
-    <ol className="flex w-full items-center gap-1 overflow-x-auto pb-1" aria-label="Deal progress">
-      {steps.map((step, index) => {
-        const complete = !special && active > index;
-        const current = !special && active === index;
-        return (
-          <li key={step.id} className="flex min-w-0 flex-1 items-center gap-1">
-            <div
-              className={cn(
-                "flex min-w-[4.5rem] flex-1 flex-col gap-1 rounded-lg px-2 py-1.5 text-center",
-                current && "bg-emerald-50",
-                special && "opacity-60",
-              )}
-              aria-current={current ? "step" : undefined}
-            >
-              <span
-                aria-hidden="true"
+    <div className="w-full">
+      <ol className="flex w-full items-center justify-between gap-2 overflow-x-auto pb-2 scrollbar-thin" aria-label="Deal progress">
+        {steps.map((step, index) => {
+          const complete = !special && active > index;
+          const current = !special && active === index;
+          return (
+            <li key={step.id} className="relative flex flex-1 min-w-[5.5rem] items-center">
+              <div
                 className={cn(
-                  "mx-auto flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold",
-                  complete && "border-emerald-700 bg-emerald-700 text-white",
-                  current && "border-emerald-700 bg-white text-emerald-800",
-                  !complete && !current && "border-slate-300 bg-white text-slate-400",
+                  "flex w-full flex-col items-center gap-1.5 rounded-xl p-2 text-center transition-all",
+                  current && "bg-emerald-50/80 ring-1 ring-emerald-300 shadow-2xs",
+                  complete && "opacity-90",
+                  special && "opacity-60",
                 )}
+                aria-current={current ? "step" : undefined}
               >
-                {complete ? "✓" : index + 1}
-              </span>
-              <span
-                className={cn(
-                  "truncate text-[11px] font-semibold",
-                  current ? "text-emerald-800" : complete ? "text-slate-700" : "text-slate-400",
-                )}
-              >
-                {step.label}
-              </span>
-            </div>
-            {index < steps.length - 1 ? (
-              <span aria-hidden="true" className={cn("h-px w-2 shrink-0", complete ? "bg-emerald-600" : "bg-slate-300")} />
-            ) : null}
-          </li>
-        );
-      })}
-    </ol>
+                <div className="relative">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-xl text-xs font-bold transition-all shadow-2xs",
+                      complete && "bg-emerald-600 text-white shadow-emerald-500/20",
+                      current && "bg-slate-900 text-emerald-400 ring-2 ring-emerald-500",
+                      !complete && !current && "bg-slate-100 text-slate-400 border border-slate-200/60",
+                    )}
+                  >
+                    {complete ? "✓" : index + 1}
+                  </span>
+                  {current ? (
+                    <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                    </span>
+                  ) : null}
+                </div>
+                <span
+                  className={cn(
+                    "text-[11px] font-bold tracking-tight whitespace-nowrap",
+                    current ? "text-slate-900" : complete ? "text-emerald-900" : "text-slate-400",
+                  )}
+                >
+                  {step.label}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }

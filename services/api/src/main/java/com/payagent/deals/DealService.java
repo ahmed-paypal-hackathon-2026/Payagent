@@ -81,8 +81,7 @@ public class DealService {
     }
 
     @Transactional
-    public Deal joinDeal(UUID dealId, UUID userId, String inviteToken) {
-        if (inviteToken == null || inviteToken.isBlank()) {
+    public Deal joinDeal(UUID dealId, UUID userId, String inviteToken) {        if (inviteToken == null || inviteToken.isBlank()) {
             throw new IllegalArgumentException("Invite token is required");
         }
         Deal deal = repository.findByIdForUpdate(dealId)
@@ -103,7 +102,12 @@ public class DealService {
             return deal;
         }
         deal.setSellerUserId(userId);
-        return repository.save(deal);
+        Deal saved = repository.save(deal);
+        if (saved.getStatus() == com.payagent.common.contracts.DealStatus.INVITED) {
+            stateMachine.transition(saved.getId(), com.payagent.common.contracts.DealStatus.ACTIVE_NEGOTIATION,
+                    com.payagent.common.contracts.NegotiationStopReason.NONE);
+        }
+        return saved;
     }
 
     @Transactional

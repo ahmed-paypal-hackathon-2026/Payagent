@@ -145,57 +145,74 @@ export function IntakeClient() {
           }
         />
 
-        <div className="grid gap-4 lg:grid-cols-5">
-          <Card className="lg:col-span-3">
-            <CardHeader title="Extracted terms" description={result.source === "server" ? "Server response" : "Demo terms"} />
+        <div className="grid gap-5 lg:grid-cols-5">
+          <Card className="lg:col-span-3 border-sky-100 bg-white/95 shadow-sm backdrop-blur">
+            <CardHeader
+              title={
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-sky-100 text-xs font-bold text-[#003087]">
+                    ✓
+                  </span>
+                  <span>Extracted Contract Terms</span>
+                </div>
+              }
+              description={result.source === "server" ? "Authoritative server extraction" : "Simulated demo terms"}
+            />
             <CardBody>
               <TermsSummary terms={result.terms} />
             </CardBody>
           </Card>
 
           <div className="space-y-4 lg:col-span-2">
-            <Card>
-              <CardHeader title="Next steps" />
+            <Card className="border-sky-100 bg-white/95 shadow-sm backdrop-blur">
+              <CardHeader title="Next Steps & Coordination" />
               <CardBody className="space-y-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Deal ID</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Bilateral Deal ID</p>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <code className="break-all rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-800">{result.dealId}</code>
+                    <code className="break-all rounded-xl bg-slate-100/80 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-800">
+                      {result.dealId}
+                    </code>
                     <CopyButton value={result.dealId} label="Copy ID" />
                   </div>
                   <Link
                     href={`/deals/${encodeURIComponent(result.dealId)}`}
-                    className="mt-3 inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+                    className="mt-3.5 inline-flex min-h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-[#003087] via-[#0070ba] to-[#0079c1] px-4.5 py-2 text-xs font-bold text-white shadow-md shadow-sky-900/15 hover:shadow-lg hover:shadow-sky-500/25 active:scale-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
                   >
-                    Open deal workspace
+                    <span>Open Deal Room</span>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
                   </Link>
                 </div>
 
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Seller invite token</p>
+                <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-3.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-900">
+                    <span>🔑</span>
+                    <span>Confidential Seller Invite Token</span>
+                  </div>
                   {result.inviteToken ? (
                     <>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <code className="break-all rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-800">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <code className="break-all rounded-lg bg-white px-2.5 py-1 font-mono text-xs font-bold text-slate-800 border border-amber-200/60">
                           {result.inviteToken}
                         </code>
-                        <CopyButton value={result.inviteToken} />
+                        <CopyButton value={result.inviteToken} label="Copy token" />
                       </div>
-                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                        Share this privately with the seller. It is not part of the workspace URL.
+                      <p className="mt-2 text-[11px] leading-relaxed text-amber-950/80">
+                        Deliver this privately to the seller. For cryptographic privacy, the invite token is never published in the URL or logs.
                       </p>
                     </>
                   ) : (
                     <p className="mt-1 text-xs leading-relaxed text-amber-800">
-                      The API response did not include an invite token, so the seller cannot be invited from this screen.
-                      Coordinate with Member A before relying on this flow.
+                      The API response did not include an invite token.
                     </p>
                   )}
                 </div>
 
-                <div className="border-t border-slate-200 pt-3">
+                <div className="border-t border-slate-100 pt-3">
                   <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
-                    Create another deal
+                    Start another deal
                   </Button>
                 </div>
               </CardBody>

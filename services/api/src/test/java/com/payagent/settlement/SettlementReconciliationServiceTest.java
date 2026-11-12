@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.common.contracts.PaymentLifecycleStatus;
 import com.payagent.paypal.PayPalInvoiceService;
@@ -23,6 +24,7 @@ import com.payagent.settlement.persistence.PayPalEventRepository;
 import com.payagent.settlement.persistence.PaymentEntity;
 import com.payagent.settlement.persistence.PaymentRepository;
 import com.payagent.settlement.port.AuditEventPort;
+import com.payagent.settlement.port.DealPort;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +38,7 @@ class SettlementReconciliationServiceTest {
     private PayPalInvoiceService invoiceService;
     private PayPalOrderService orderService;
     private AuditEventPort auditEventPort;
+    private DealPort dealPort;
     private SettlementReconciliationService reconciliationService;
     private ObjectMapper objectMapper;
 
@@ -47,6 +50,7 @@ class SettlementReconciliationServiceTest {
         invoiceService = mock(PayPalInvoiceService.class);
         orderService = mock(PayPalOrderService.class);
         auditEventPort = mock(AuditEventPort.class);
+        dealPort = mock(DealPort.class);
 
         when(eventRepository.insertIfAbsent(anyString(), anyString(), nullable(String.class), anyString())).thenReturn(1);
 
@@ -56,7 +60,8 @@ class SettlementReconciliationServiceTest {
                 paymentRepository,
                 invoiceService,
                 orderService,
-                auditEventPort
+                auditEventPort,
+                dealPort
         );
         objectMapper = new ObjectMapper();
     }
@@ -219,6 +224,113 @@ class SettlementReconciliationServiceTest {
         assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.COMPLETED);
         assertThat(invoice.getLifecycleStatus()).isEqualTo(InvoiceLifecycleStatus.PAID);
         verify(invoiceRepository).save(invoice);
+    }
+
+    @Test
+    void capturePendingMarksPaymentCapturePendingForScheduledReconciliation() throws Exception {
+        when(eventRepository.existsByEventId("EVT-CAP-PENDING-1")).thenReturn(false);
+
+        UUID dealId = UUID.randomUUID();
+        PaymentEntity payment = new PaymentEntity(
+                dealId, dealId, 1, PaymentLifecycleStatus.AUTHORIZED,
+                "ORD-1", "AUTH-PENDING", null, null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-PENDING")).thenReturn(Optional.of(payment));
+
+        boolean processed = reconciliationService.processWebhookEvent(
+                "EVT-CAP-PENDING-1",
+                "PAYMENT.CAPTURE.PENDING",
+                "CAP-PENDING",
+                objectMapper.readTree("""
+                        {
+                          "id": "CAP-PENDING",
+                          "status": "PENDING",
+                          "supplementary_data": {
+                            "related_ids": {
+                              "authorization_id": "AUTH-PENDING"
+                            }
+                          }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(processed).isTrue();
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.CAPTURE_PENDING);
+        assertThat(payment.getPaypalCaptureId()).isEqualTo("CAP-PENDING");
+        verify(paymentRepository).save(payment);
+    }
+
+    @Test
+    void captureCompletedClosesDealAfterAsyncCompletion() throws Exception {
+        when(eventRepository.existsByEventId("EVT-CAP-CLOSE-1")).thenReturn(false);
+
+        UUID dealId = UUID.randomUUID();
+        PaymentEntity payment = new PaymentEntity(
+                dealId, dealId, 1, PaymentLifecycleStatus.CAPTURE_PENDING,
+                "ORD-1", "AUTH-CLOSE", "CAP-CLOSE", null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-CLOSE")).thenReturn(Optional.of(payment));
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.DELIVERABLES_SUBMITTED);
+
+        boolean processed = reconciliationService.processWebhookEvent(
+                "EVT-CAP-CLOSE-1",
+                "PAYMENT.CAPTURE.COMPLETED",
+                "CAP-CLOSE",
+                objectMapper.readTree("""
+                        {
+                          "id": "CAP-CLOSE",
+                          "status": "COMPLETED",
+                          "supplementary_data": {
+                            "related_ids": {
+                              "authorization_id": "AUTH-CLOSE"
+                            }
+                          }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(processed).isTrue();
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.COMPLETED);
+        verify(dealPort).transitionDealStatus(dealId, DealStatus.ACCEPTED);
+        verify(dealPort).transitionDealStatus(dealId, DealStatus.CLOSED);
+    }
+
+    @Test
+    void authorizationCreatedTransitionsDealToInProgress() throws Exception {
+        when(eventRepository.existsByEventId("EVT-AUTH-PROGRESS-1")).thenReturn(false);
+        when(paymentRepository.findByPaypalAuthorizationId("AUTH-PROGRESS")).thenReturn(Optional.empty());
+
+        UUID dealId = UUID.randomUUID();
+        PaymentEntity payment = new PaymentEntity(
+                dealId, dealId, 1, PaymentLifecycleStatus.ORDER_CREATED,
+                "ORD-PROGRESS", null, null, null, 98000L, "USD"
+        );
+        when(paymentRepository.findByPaypalOrderId("ORD-PROGRESS")).thenReturn(Optional.of(payment));
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.SETTLEMENT_PENDING);
+
+        boolean processed = reconciliationService.processWebhookEvent(
+                "EVT-AUTH-PROGRESS-1",
+                "PAYMENT.AUTHORIZATION.CREATED",
+                "AUTH-PROGRESS",
+                objectMapper.readTree("""
+                        {
+                          "id": "AUTH-PROGRESS",
+                          "status": "CREATED",
+                          "supplementary_data": {
+                            "related_ids": {
+                              "order_id": "ORD-PROGRESS"
+                            }
+                          }
+                        }
+                        """),
+                "{}"
+        );
+
+        assertThat(processed).isTrue();
+        assertThat(payment.getLifecycleStatus()).isEqualTo(PaymentLifecycleStatus.AUTHORIZED);
+        verify(dealPort).transitionDealStatus(dealId, DealStatus.IN_PROGRESS);
     }
 
     @Test

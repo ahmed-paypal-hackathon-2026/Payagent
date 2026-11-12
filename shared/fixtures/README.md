@@ -20,3 +20,9 @@ Validate syntax from repo root:
 ```cmd
 node scripts\validate-fixtures.mjs
 ```
+
+The accepted agreement fixture contains the SHA-256 of its actual canonical terms. Its hash is checked by `FixtureReleaseGateTest`, alongside DTO validation, deal/version/amount consistency, and duplicate-event identifiers. PayPal IDs, download signatures, and evidence digests remain synthetic labels: these fixtures do not establish a live payment or a valid file download.
+
+## DTO review handoff
+
+Member F inspected the Java DTO records, TypeScript mirror and plan contracts locally. The automated enum parity test and fixture deserialization checks pass; this is not a substitute for A/D approving shared contract changes. No Java/TypeScript contract changes were made by F. A/D can review the canonical fixtures on `member-f/release-gates`; coordination is tracked in GitHub WP-A1 and WP-D1 issues. Keep fixture IDs and signatures clearly synthetic; replace them only in private disposable integration data.
