@@ -52,7 +52,7 @@ Project terms can change across messages while the invoice and payment record si
 
 ## ☕ The Northline Coffee deal
 
-![A café owner and designer review a launch project as blue glass graphics show the agreement changing from $980.00 to $980.01 and requiring fresh approvals](docs/member-f/readme-media/northline-coffee.jpg)
+![A café owner and designer review a launch project as blue glass graphics show the agreement changing from $980.00 to $980.01 and requiring fresh approvals](docs/member-f/readme-media/northline-cafe-collaborators.jpg)
 
 *An illustrated opening to the fictional Northline Coffee demo.*
 
