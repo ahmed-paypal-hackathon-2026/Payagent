@@ -34,6 +34,7 @@ import { TermsSummary } from "./TermsSummary";
 import agreementStyles from "./AgreementPanel.module.css";
 import { DeliverablesPanel, type DeliverablesActions } from "./DeliverablesPanel";
 import { AuditPanel, type AuditPanelEvent } from "./AuditPanel";
+import { StatusStepper } from "./StatusStepper";
 import { openDealEventStream, type StreamStatus } from "@/lib/api/live-events";
 
 type AuditEventApiDTO = import("@/lib/api/client").AuditEventApiDTO;
@@ -255,7 +256,7 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
   const isBuyer = role === "BUYER";
   const isSeller = role === "SELLER";
   const contractorView = workspace?.myRole === "SELLER";
-  const contractorAgreement = contractorView && currentAgreement !== null;
+  const agreementPaper = currentAgreement !== null;
   const frozen = status === "DISPUTED";
   const ownAccepted = currentAgreement
     ? role === "BUYER"
@@ -524,8 +525,8 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
             {status ? <DealStatusBadge status={status} /> : <Badge tone="warning">Status unknown</Badge>}
             {role ? <Badge tone="accent">{contractorView ? "Contractor view" : `${role} view`}</Badge> : <Badge tone="neutral">Role not loaded</Badge>}
           </div>
-          <h1 className={contractorView ? "font-serif text-4xl tracking-tight text-indigo-950" : "text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"}>
-            {contractorView ? currentAgreement?.canonicalTerms.title ?? terms?.title ?? "Contractor workspace" : "Live deal console"}
+          <h1 className="font-serif text-4xl font-semibold italic leading-tight tracking-tight text-indigo-950 sm:text-5xl">
+            {terms?.title ?? currentAgreement?.canonicalTerms.title ?? (contractorView ? "Contractor workspace" : "Live deal workspace")}
           </h1>
           <p className="break-all font-mono text-xs text-slate-500">{dealId}</p>
         </div>
@@ -536,6 +537,8 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
           </Button>
         </div>
       </div>
+
+      {status ? <StatusStepper status={status} /> : null}
 
       <Alert tone={health === "up" ? "success" : health === "down" ? "error" : "info"} title={`Backend: ${health}`}>
         Health check <code className="rounded bg-white/70 px-1">GET /api/v1/health</code> on {apiBaseUrl}. The browser calls
@@ -710,16 +713,16 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
             </Card>
           ) : null}
 
-          <Card className={contractorAgreement ? agreementStyles.paper : undefined}>
-            {contractorAgreement ? <div className={agreementStyles.ribbon} aria-hidden="true" /> : null}
+          <Card className={agreementPaper ? agreementStyles.paper : undefined}>
+            {agreementPaper ? <div className={agreementStyles.ribbon} aria-hidden="true" /> : null}
             <CardHeader
-              title={contractorAgreement && currentAgreement
+              title={agreementPaper && currentAgreement
                 ? <span className="font-serif text-2xl italic">Agreement v{currentAgreement.version}</span>
                 : "Agreement"}
-              description={contractorAgreement ? "Review the terms and each party’s approval." : "Propose and accept the current agreement version."}
-              className={contractorAgreement ? "relative px-0 pt-0" : undefined}
+              description={agreementPaper ? "Review the terms and each party’s approval." : "Propose and accept the current agreement version."}
+              className={agreementPaper ? "relative px-0 pt-0" : undefined}
             />
-            <CardBody className={cn("relative space-y-4", contractorAgreement && "px-0 pb-0")}>
+            <CardBody className={cn("relative space-y-4", agreementPaper && "px-0 pb-0")}>
               {currentAgreement ? (
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -729,8 +732,7 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
                     </div>
                     <CopyButton value={currentAgreement.termsHashSha256} label="Copy server hash" />
                   </div>
-                  {contractorAgreement ? (
-                    <>
+                  <>
                       <p className={agreementStyles.amount}>
                         {formatMinorUnits(currentAgreement.canonicalTerms.priceMinorUnits, currentAgreement.canonicalTerms.currency)}
                       </p>
@@ -742,7 +744,6 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
                         <div className="mt-3"><TermsSummary terms={currentAgreement.canonicalTerms} compact /></div>
                       </details>
                     </>
-                  ) : <TermsSummary terms={currentAgreement.canonicalTerms} compact />}
                   <div className="rounded-lg bg-slate-100 px-3 py-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Server terms hash</p>
                     <code className="mt-1 block break-all font-mono text-[11px] text-slate-700">
@@ -764,7 +765,7 @@ export function LiveDealConsole({ dealId }: { dealId: string }) {
                   ) : ownAccepted ? (
                     <Alert tone="info">Your acceptance is recorded. Waiting for the counterparty.</Alert>
                   ) : status === "TERMS_PENDING_ACCEPTANCE" && !frozen ? (
-                    <Button className={contractorAgreement ? agreementStyles.accept : undefined} onClick={acceptAgreement} loading={busy === "accept"}>
+                    <Button className={agreementPaper ? agreementStyles.accept : undefined} onClick={acceptAgreement} loading={busy === "accept"}>
                       Accept agreement v{currentAgreement.version}
                     </Button>
                   ) : (
