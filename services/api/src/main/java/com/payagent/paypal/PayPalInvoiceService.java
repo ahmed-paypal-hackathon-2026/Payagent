@@ -3,16 +3,26 @@ package com.payagent.paypal;
 import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.paypal.model.CreateInvoiceCommand;
 import com.payagent.paypal.model.PayPalInvoiceResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 @Service
 public class PayPalInvoiceService {
@@ -22,6 +32,7 @@ public class PayPalInvoiceService {
 
     private final PayPalAuthClient authClient;
     private final RestClient restClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public PayPalInvoiceService(PayPalAuthClient authClient, PayPalProperties properties, RestClient.Builder restClientBuilder) {
         this.authClient = authClient;
@@ -88,9 +99,21 @@ public class PayPalInvoiceService {
                 spec.header(PAYPAL_REQUEST_ID_HEADER, requestId);
             }
 
-            PayPalInvoiceResponse response = spec.body(payload)
-                    .retrieve()
-                    .body(PayPalInvoiceResponse.class);
+            ResponseEntity<String> entity;
+            try {
+                entity = spec.body(payload)
+                        .retrieve()
+                        .toEntity(String.class);
+            } catch (RestClientResponseException e) {
+                logPayPalResponseDiagnostics("create-invoice", e.getRawStatusCode(), e.getResponseBodyAsByteArray(), requestId);
+                throw buildPayPalException(e);
+            }
+
+            String body = entity.getBody();
+            logPayPalResponseDiagnostics("create-invoice", entity.getStatusCode().value(),
+                    body == null ? null : body.getBytes(StandardCharsets.UTF_8), requestId);
+
+            PayPalInvoiceResponse response = parseInvoiceBody(body, entity.getStatusCode().value());
 
             if (response == null || response.id() == null) {
                 throw new PayPalException(502, "INVOICE_CREATION_FAILED", "Empty invoice response from PayPal");
@@ -214,6 +237,122 @@ public class PayPalInvoiceService {
             case "CANCELLED", "REFUNDED", "PARTIALLY_REFUNDED" -> InvoiceLifecycleStatus.CANCELLED;
             default -> InvoiceLifecycleStatus.UNKNOWN;
         };
+    }
+
+    /** Captures a sanitized one-line fingerprint of a PayPal response for diagnosis. Never logs body content, headers, or PII. */
+    private void logPayPalResponseDiagnostics(String operation, int status, byte[] bodyBytes, String requestId) {
+        String id = safeIdRef(requestId);
+        try {
+            if (bodyBytes == null || bodyBytes.length == 0) {
+                log.warn("paypal {} id={} status={} body=empty", operation, id, status);
+                return;
+            }
+            String body = new String(bodyBytes, StandardCharsets.UTF_8);
+            String sha256 = sha256Hex(bodyBytes);
+            Set<String> keys = new LinkedHashSet<>();
+            JsonNode node = null;
+            try {
+                node = objectMapper.readTree(bodyBytes);
+                if (node != null && node.isObject()) {
+                    node.fieldNames().forEachRemaining(keys::add);
+                }
+            } catch (Exception ignored) {
+                // unparseable JSON — not fatal, diagnostics proceed with size/sha256 only
+            }
+            boolean hasId = node != null && node.hasNonNull("id");
+            boolean hasDebugId = node != null && node.path("debug_id").isTextual();
+            if (status >= 400) {
+                String errorName = node != null && node.path("name").isTextual() ? node.path("name").asText() : null;
+                String debugId = hasDebugId ? node.path("debug_id").asText() : null;
+                List<String> issueCodes = new ArrayList<>();
+                JsonNode details = node != null ? node.path("details") : null;
+                if (details != null && details.isArray()) {
+                    details.forEach(detail -> {
+                        JsonNode issue = detail.path("issue");
+                        if (issue.isTextual()) {
+                            String it = issue.asText();
+                            if (it.length() <= 64 && it.matches("[A-Z0-9_]+")) {
+                                issueCodes.add(it);
+                            }
+                        }
+                    });
+                }
+                log.warn("paypal {} id={} status={} bodySize={} sha256={} keys={} hasId={} errorName={} debugId={} issues={}",
+                        operation, id, status, bodyBytes.length, sha256, keys, hasId, errorName, debugId, issueCodes);
+            } else {
+                log.info("paypal {} id={} status={} bodySize={} sha256={} keys={} hasId={}",
+                        operation, id, status, bodyBytes.length, sha256, keys, hasId);
+            }
+        } catch (Exception ex) {
+            // Logging must never throw — otherwise the diagnostic path would hide the PayPal failure.
+            log.warn("paypal {} id={} status={} bodyDigest={} (diag-failed)", operation, id, status,
+                    bodyBytes == null ? "none" : sha256Hex(bodyBytes));
+        }
+    }
+
+    private String safeIdRef(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return "unknown";
+        }
+        String trimmed = requestId.trim();
+        return trimmed.length() <= 128 ? trimmed : trimmed.substring(0, 128);
+    }
+
+    private String sha256Hex(byte[] data) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(data);
+            StringBuilder sb = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b & 0xff));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return "digest-unavailable";
+        }
+    }
+
+    private PayPalInvoiceResponse parseInvoiceBody(String body, int status) {
+        if (body == null || body.isBlank()) {
+            log.warn("paypal create-invoice status={} body empty — treating as INVOICE_CREATION_FAILED", status);
+            return null;
+        }
+        try {
+            return objectMapper.readValue(body, PayPalInvoiceResponse.class);
+        } catch (Exception e) {
+            log.warn("paypal create-invoice status={} bodySize={} sha256={} (malformed JSON)", status,
+                    body.getBytes(StandardCharsets.UTF_8).length, sha256Hex(body.getBytes(StandardCharsets.UTF_8)));
+            throw new PayPalException(502, "INVOICE_CREATION_FAILED", "Malformed invoice response from PayPal", e);
+        }
+    }
+
+    private PayPalException buildPayPalException(RestClientResponseException e) {
+        int status = e.getRawStatusCode();
+        String debugId = null;
+        String errorName = null;
+        byte[] bodyBytes = e.getResponseBodyAsByteArray();
+        try {
+            if (bodyBytes != null) {
+                JsonNode node = objectMapper.readTree(bodyBytes);
+                if (node.path("name").isTextual()) {
+                    errorName = node.path("name").asText();
+                }
+                if (node.path("debug_id").isTextual()) {
+                    debugId = node.path("debug_id").asText();
+                }
+            }
+        } catch (Exception parseFailure) {
+            log.warn("paypal create-invoice error envelope unparseable; status={}", status);
+        }
+        StringBuilder message = new StringBuilder("PayPal invoice creation failed");
+        message.append(" (status=").append(status).append(')');
+        if (errorName != null) {
+            message.append(" name=").append(errorName);
+        }
+        if (debugId != null) {
+            message.append(" debugId=").append(debugId);
+        }
+        return new PayPalException(502, "INVOICE_CREATION_FAILED", message.toString(), e);
     }
 
     private String sanitizeEmail(String email, String defaultEmail) {

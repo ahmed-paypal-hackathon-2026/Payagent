@@ -15,13 +15,18 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.paypal.model.CreateInvoiceCommand;
 import com.payagent.paypal.model.PayPalInvoiceResponse;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.web.client.response.MockRestResponseCreators;
 import org.springframework.web.client.RestClient;
 
 class PayPalInvoiceServiceTest {
@@ -31,6 +36,9 @@ class PayPalInvoiceServiceTest {
     private RestClient.Builder restClientBuilder;
     private MockRestServiceServer mockServer;
     private PayPalInvoiceService invoiceService;
+
+    private Logger invoiceServiceLogger;
+    private ListAppender<ILoggingEvent> logAppender;
 
     @BeforeEach
     void setUp() {
@@ -43,6 +51,11 @@ class PayPalInvoiceServiceTest {
         restClientBuilder = RestClient.builder();
         mockServer = MockRestServiceServer.bindTo(restClientBuilder).build();
         invoiceService = new PayPalInvoiceService(authClient, properties, restClientBuilder);
+
+        invoiceServiceLogger = (Logger) LoggerFactory.getLogger(PayPalInvoiceService.class);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        invoiceServiceLogger.addAppender(logAppender);
     }
 
     @Test
@@ -166,6 +179,170 @@ class PayPalInvoiceServiceTest {
         assertThat(invoiceService.mapToLifecycleStatus("REFUNDED")).isEqualTo(InvoiceLifecycleStatus.CANCELLED);
         assertThat(invoiceService.mapToLifecycleStatus("RANDOM_NEW_STATUS")).isEqualTo(InvoiceLifecycleStatus.UNKNOWN);
         assertThat(invoiceService.mapToLifecycleStatus(null)).isEqualTo(InvoiceLifecycleStatus.UNKNOWN);
+    }
+
+    private List<String> loggedMessages() {
+        return logAppender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    private String createCommandJson() {
+        return """
+                {
+                  "id": "INV2-SYNTH-0001",
+                  "status": "DRAFT",
+                  "detail": { "invoice_number": "0001", "currency_code": "USD" },
+                  "links": [ { "rel": "self", "href": "https://api-m.sandbox.paypal.com/v2/invoicing/invoices/INV2-SYNTH-0001", "method": "GET" } ]
+                }
+                """;
+    }
+
+    @Test
+    void createDraftInvoice_valid201_returnsIdAndLogsSanitizedFingerprint() {
+        mockServer.expect(requestTo("https://api-m.sandbox.paypal.com/v2/invoicing/invoices"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(createCommandJson(), MediaType.APPLICATION_JSON));
+
+        PayPalInvoiceResponse response = invoiceService.createDraftInvoice(
+                new CreateInvoiceCommand("deal-1", "seller@example.test", "buyer@example.test",
+                        "Synthetic Invoice", List.of("Deliverable A"), 10000L, "USD", "deadbeef".repeat(8)),
+                "test-req-001");
+
+        assertThat(response.id()).isEqualTo("INV2-SYNTH-0001");
+        List<String> logs = loggedMessages();
+        assertThat(logs).anySatisfy(line -> {
+            assertThat(line).contains("status=200");
+            assertThat(line).contains("hasId=true");
+            assertThat(line).contains("sha256=");
+            assertThat(line).doesNotContain("seller@example.test");
+            assertThat(line).doesNotContain("buyer@example.test");
+        });
+        mockServer.verify();
+    }
+
+    @Test
+    void createDraftInvoice_empty201_throwsPayPalException() {
+        mockServer.expect(requestTo("https://api-m.sandbox.paypal.com/v2/invoicing/invoices"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> invoiceService.createDraftInvoice(
+                new CreateInvoiceCommand("deal-1", "seller@example.test", "buyer@example.test",
+                        "Synthetic Invoice", List.of("Deliverable A"), 10000L, "USD", "deadbeef".repeat(8)),
+                "test-req-002"))
+                .isInstanceOf(PayPalException.class)
+                .satisfies(e -> assertThat(((PayPalException) e).getErrorCode()).isEqualTo("INVOICE_CREATION_FAILED"))
+                .hasMessageContaining("Empty invoice response from PayPal");
+
+        List<String> logs = loggedMessages();
+        assertThat(logs).anySatisfy(line -> assertThat(line).contains("body=empty"));
+        assertThat(logs).noneSatisfy(line -> assertThat(line).contains("seller@example.test"));
+        mockServer.verify();
+    }
+
+    @Test
+    void createDraftInvoice_201WithoutId_throwsPayPalException() {
+        mockServer.expect(requestTo("https://api-m.sandbox.paypal.com/v2/invoicing/invoices"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{\"status\":\"DRAFT\"}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> invoiceService.createDraftInvoice(
+                new CreateInvoiceCommand("deal-1", "seller@example.test", "buyer@example.test",
+                        "Synthetic Invoice", List.of("Deliverable A"), 10000L, "USD", "deadbeef".repeat(8)),
+                "test-req-003"))
+                .isInstanceOf(PayPalException.class)
+                .satisfies(e -> assertThat(((PayPalException) e).getErrorCode()).isEqualTo("INVOICE_CREATION_FAILED"))
+                .hasMessageContaining("Empty invoice response from PayPal");
+
+        assertThat(loggedMessages()).anySatisfy(line -> assertThat(line).contains("hasId=false"));
+        mockServer.verify();
+    }
+
+    @Test
+    void createDraftInvoice_403PayPalError_isSanitizedAndPreservesDebugId() {
+        mockServer.expect(requestTo("https://api-m.sandbox.paypal.com/v2/invoicing/invoices"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(MockRestResponseCreators.withStatus(org.springframework.http.HttpStatus.FORBIDDEN)
+                        .body("""
+                                {"name":"PERMISSION_DENIED","debug_id":"debug-xyz123","message":"PII-free check email=seller@example.test"}
+                                """)
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> invoiceService.createDraftInvoice(
+                new CreateInvoiceCommand("deal-1", "seller@example.test", "buyer@example.test",
+                        "Synthetic Invoice", List.of("Deliverable A"), 10000L, "USD", "deadbeef".repeat(8)),
+                "test-req-004"))
+                .isInstanceOf(PayPalException.class)
+                .satisfies(e -> assertThat(((PayPalException) e).getErrorCode()).isEqualTo("INVOICE_CREATION_FAILED"))
+                .hasMessageContaining("debug-xyz123");
+
+        List<String> logs = loggedMessages();
+        assertThat(logs).anySatisfy(line -> {
+            assertThat(line).contains("errorName=PERMISSION_DENIED");
+            assertThat(line).contains("debugId=debug-xyz123");
+            assertThat(line).doesNotContain("seller@example.test");
+        });
+        mockServer.verify();
+    }
+
+    @Test
+    void createDraftInvoice_400And500PayPalErrors_areSanitizedAndMapped() {
+        org.springframework.http.HttpStatus[] statuses = {
+                org.springframework.http.HttpStatus.BAD_REQUEST,
+                org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR
+        };
+        for (int i = 0; i < statuses.length; i++) {
+            int idx = i;
+            mockServer = MockRestServiceServer.bindTo(restClientBuilder = RestClient.builder()).build();
+            invoiceService = new PayPalInvoiceService(authClient, properties, restClientBuilder);
+            mockServer.expect(requestTo("https://api-m.sandbox.paypal.com/v2/invoicing/invoices"))
+                    .andExpect(method(HttpMethod.POST))
+                    .andRespond(MockRestResponseCreators.withStatus(statuses[idx])
+                            .body("{\"name\":\"TEST_ERR_" + idx + "\",\"debug_id\":\"dbg-" + idx + "\",\"message\":\"should-not-leak\"}")
+                            .contentType(MediaType.APPLICATION_JSON));
+
+            assertThatThrownBy(() -> invoiceService.createDraftInvoice(
+                    new CreateInvoiceCommand("deal-1", "seller@example.test", "buyer@example.test",
+                            "Synthetic Invoice", List.of("Deliverable A"), 10000L, "USD", "deadbeef".repeat(8)),
+                    "test-req-00" + idx))
+                    .isInstanceOf(PayPalException.class)
+                    .satisfies(e -> assertThat(((PayPalException) e).getErrorCode()).isEqualTo("INVOICE_CREATION_FAILED"))
+                    .hasMessageContaining("dbg-" + idx);
+        }
+    }
+
+    @Test
+    void createDraftInvoice_malformed2xxJson_throwsPayPalExceptionWithoutSecondaryCrash() {
+        mockServer.expect(requestTo("https://api-m.sandbox.paypal.com/v2/invoicing/invoices"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{ this is not json", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> invoiceService.createDraftInvoice(
+                new CreateInvoiceCommand("deal-1", "seller@example.test", "buyer@example.test",
+                        "Synthetic Invoice", List.of("Deliverable A"), 10000L, "USD", "deadbeef".repeat(8)),
+                "test-req-006"))
+                .isInstanceOf(PayPalException.class)
+                .satisfies(e -> assertThat(((PayPalException) e).getErrorCode()).isEqualTo("INVOICE_CREATION_FAILED"))
+                .hasMessageContaining("Malformed invoice response from PayPal");
+
+        assertThat(loggedMessages()).anySatisfy(line -> assertThat(line).contains("status=200"));
+        mockServer.verify();
+    }
+
+    @Test
+    void createDraftInvoice_nullBody201_throwsPayPalExceptionWithoutSecondaryCrash() {
+        mockServer.expect(requestTo("https://api-m.sandbox.paypal.com/v2/invoicing/invoices"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> invoiceService.createDraftInvoice(
+                new CreateInvoiceCommand("deal-1", "seller@example.test", "buyer@example.test",
+                        "Synthetic Invoice", List.of("Deliverable A"), 10000L, "USD", "deadbeef".repeat(8)),
+                "test-req-007"))
+                .isInstanceOf(PayPalException.class)
+                .satisfies(e -> assertThat(((PayPalException) e).getErrorCode()).isEqualTo("INVOICE_CREATION_FAILED"));
+
+        assertThat(loggedMessages()).noneSatisfy(line -> assertThat(line).contains("seller@example.test"));
+        mockServer.verify();
     }
 
     @Test
