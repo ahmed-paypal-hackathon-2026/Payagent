@@ -79,7 +79,7 @@ class FlywayPostgreSqlVerificationTest {
                 "SELECT data_type, character_maximum_length FROM information_schema.columns WHERE table_name='agreements' AND column_name='terms_hash_sha256'")) {
             ResultSet rs = ps.executeQuery();
             assertTrue(rs.next());
-            assertEquals("character", rs.getString("data_type"));
+            assertEquals("character varying", rs.getString("data_type"));
             assertEquals(64, rs.getInt("character_maximum_length"));
         }
 
