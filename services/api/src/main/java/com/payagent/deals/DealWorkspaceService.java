@@ -20,7 +20,6 @@ import com.payagent.disputes.service.DisputeService;
 import com.payagent.evidence.service.EvidenceStorageService;
 import com.payagent.mandates.MandateService;
 import com.payagent.settlement.SettlementService;
-import com.payagent.settlement.exception.SettlementNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -72,12 +71,7 @@ public class DealWorkspaceService {
         User caller = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("Caller user not found"));
 
-        MandateDTO myMandate = null;
-        try {
-            myMandate = mandateService.getMandateForUser(dealId, userId);
-        } catch (IllegalArgumentException ex) {
-            myMandate = null;
-        }
+        MandateDTO myMandate = mandateService.getMandateForUserOrNull(dealId, userId);
 
         List<OfferDTO> offers = offerRepository.findByDealIdOrderByRoundNumberAsc(dealId).stream()
                 .map(this::toOfferDto)
@@ -121,28 +115,28 @@ public class DealWorkspaceService {
     }
 
     private SettlementStateDTO buildSettlementState(UUID dealId, String callerEmail, AgreementSnapshotDTO currentAgreement) {
-        try {
-            return settlementService.getSettlementState(dealId, callerEmail);
-        } catch (SettlementNotFoundException ex) {
-            int version = currentAgreement != null ? currentAgreement.version() : 1;
-            String currency = currentAgreement != null ? currentAgreement.canonicalTerms().currency() : "USD";
-            return new SettlementStateDTO(
-                    dealId.toString(),
-                    version,
-                    InvoiceLifecycleStatus.NOT_CREATED,
-                    null,
-                    null,
-                    null,
-                    PaymentLifecycleStatus.NOT_STARTED,
-                    null,
-                    null,
-                    null,
-                    null,
-                    0L,
-                    currency,
-                    Instant.now().toString()
-            );
+        SettlementStateDTO state = settlementService.getSettlementStateOrNull(dealId, callerEmail);
+        if (state != null) {
+            return state;
         }
+        int version = currentAgreement != null ? currentAgreement.version() : 1;
+        String currency = currentAgreement != null ? currentAgreement.canonicalTerms().currency() : "USD";
+        return new SettlementStateDTO(
+                dealId.toString(),
+                version,
+                InvoiceLifecycleStatus.NOT_CREATED,
+                null,
+                null,
+                null,
+                PaymentLifecycleStatus.NOT_STARTED,
+                null,
+                null,
+                null,
+                null,
+                0L,
+                currency,
+                Instant.now().toString()
+        );
     }
 
     private OfferDTO toOfferDto(Offer offer) {

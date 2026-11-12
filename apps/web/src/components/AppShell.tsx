@@ -18,6 +18,28 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { mode, liveSession, logout } = useSession();
 
+  if (mode === "mock" && pathname.startsWith("/deals/")) {
+    return (
+      <div className="min-h-screen bg-[#faf6ef] text-[#181529] lg:grid lg:grid-cols-[12rem_minmax(0,1fr)]">
+        <header className="flex flex-wrap items-center justify-between gap-3 bg-[#141128] px-5 py-4 text-white lg:sticky lg:top-0 lg:h-screen lg:flex-col lg:items-stretch lg:justify-start lg:gap-8 lg:px-5 lg:py-7">
+          <Link href="/" className="font-serif text-3xl tracking-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-300">Payagent</Link>
+          <nav aria-label="Primary" className="flex flex-wrap gap-1 text-sm lg:flex-col">
+            {navItems.map(({ href, label }) => (
+              <Link key={href} href={href} className={cn("rounded-lg px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-300", href === "/" ? "bg-[#393368] text-white" : "text-violet-100 hover:bg-white/10")}>
+                {href === "/" ? "Deals" : label}
+              </Link>
+            ))}
+          </nav>
+          <div className="w-full lg:mt-auto [&_label]:flex-wrap [&_label]:text-violet-100 [&_select]:w-full"><DemoUserSwitcher /></div>
+        </header>
+        <main className="mx-auto w-full min-w-0 max-w-7xl px-4 py-6 sm:px-8 lg:px-10 lg:py-9">
+          <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-indigo-800">PayPal Sandbox · Simulation</p>
+          {children}
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">

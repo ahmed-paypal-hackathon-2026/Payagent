@@ -6,6 +6,7 @@ import com.payagent.common.contracts.AgreementSnapshotDTO;
 import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.StructuredTermsDTO;
 import com.payagent.deals.Deal;
+import com.payagent.deals.DealRepository;
 import com.payagent.deals.DealService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -41,6 +43,7 @@ class AgreementControllerTest {
     @Autowired private ObjectMapper mapper;
     @Autowired private UserRepository userRepository;
     @Autowired private DealService dealService;
+    @Autowired private DealRepository dealRepository;
 
     private static final List<String> DELIVERED = List.of("figma", "source", "notes");
 
@@ -51,11 +54,7 @@ class AgreementControllerTest {
     private Deal makeDeal() {
         User b = makeUser("ac" + UUID.randomUUID() + "@test.com");
         User s = makeUser("ac" + UUID.randomUUID() + "@test.com");
-        Deal deal = dealService.createDeal(b.getId(), s.getId());
-        // Agreement proposal requires the deal to be in ACTIVE_NEGOTIATION before
-        // moving to TERMS_PENDING_ACCEPTANCE, per the legal state machine.
-        dealService.setStatus(deal.getId(), DealStatus.ACTIVE_NEGOTIATION);
-        return dealService.getDeal(deal.getId());
+        return dealRepository.save(new Deal(UUID.randomUUID(), b.getId(), s.getId(), DealStatus.ACTIVE_NEGOTIATION));
     }
 
     private String termsJson(long price, int delivery, int revisions) throws Exception {
@@ -95,7 +94,7 @@ class AgreementControllerTest {
                         .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
-                                new AcceptanceRequest(snap.version(), snap.termsHashSha256()))))
+                        Map.of("termsHashSha256", snap.termsHashSha256()))))
                 .andExpect(status().isOk());
 
         // Seller accepts -> deal becomes AGREED
@@ -105,7 +104,7 @@ class AgreementControllerTest {
                         .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
-                                new AcceptanceRequest(snap.version(), snap.termsHashSha256()))))
+                        Map.of("termsHashSha256", snap.termsHashSha256()))))
                 .andExpect(status().isOk());
     }
 
@@ -130,7 +129,7 @@ class AgreementControllerTest {
                         .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
-                                new AcceptanceRequest(snap.version(), "0".repeat(64)))))
+                        Map.of("termsHashSha256", "0".repeat(64)))))
                 .andExpect(status().isConflict());
     }
 
@@ -168,7 +167,7 @@ class AgreementControllerTest {
                         .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
-                                new AcceptanceRequest(snap.version(), snap.termsHashSha256()))))
+                        Map.of("termsHashSha256", snap.termsHashSha256()))))
                 .andExpect(status().isConflict());
     }
 
@@ -196,7 +195,7 @@ class AgreementControllerTest {
                         .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
-                                new AcceptanceRequest(v1.version(), v1.termsHashSha256()))))
+                        Map.of("termsHashSha256", v1.termsHashSha256()))))
                 .andExpect(status().isOk());
 
         // Propose v2 (new terms)
@@ -222,7 +221,7 @@ class AgreementControllerTest {
                         .header("Idempotency-Key", "idem-key-" + UUID.randomUUID())
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(
-                                new AcceptanceRequest(v1.version(), v1.termsHashSha256()))))
+                        Map.of("termsHashSha256", v1.termsHashSha256()))))
                 .andExpect(status().isConflict());
     }
 
@@ -289,5 +288,4 @@ class AgreementControllerTest {
         }
     }
 
-    record AcceptanceRequest(int agreementVersion, String termsHashSha256) {}
 }

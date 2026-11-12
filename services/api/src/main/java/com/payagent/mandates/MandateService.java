@@ -64,8 +64,14 @@ public class MandateService {
         return toDto(mandate);
     }
 
-    private MandateDTO toDto(Mandate m) {
-        try {
+    public MandateDTO getMandateForUserOrNull(UUID dealId, UUID userId) {
+        PartyRole role = dealService.requireMembership(dealId, userId);
+        return repository.findTopByDealIdAndPartyRoleOrderByVersionDesc(dealId, role)
+                .map(this::toDto)
+                .orElse(null);
+    }
+
+    private MandateDTO toDto(Mandate m) {        try {
             return new MandateDTO(
                     m.getId().toString(),
                     m.getDealId().toString(),

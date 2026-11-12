@@ -9,11 +9,13 @@ import com.payagent.common.contracts.NegotiationMode;
 import com.payagent.common.contracts.PartyRole;
 import com.payagent.common.contracts.StructuredTermsDTO;
 import com.payagent.deals.Deal;
+import com.payagent.deals.DealRepository;
 import com.payagent.deals.DealService;
 import com.payagent.mandates.MandateService;
 import com.payagent.mandates.UtilityCalculator;
-import com.payagent.agreements.AgreementService;
 import com.payagent.agreements.AgreementConflictException;
+import com.payagent.agreements.AgreementNotFoundException;
+import com.payagent.agreements.AgreementService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,14 +39,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Phase A7 — Integration & Regression.
+ * Phase A7 ΓÇö Integration & Regression.
  *
- * End-to-end mandate → utility → agreement lifecycle test covering:
+ * End-to-end mandate ΓåÆ utility ΓåÆ agreement lifecycle test covering:
  * 1. Deal creation with buyer/seller participants
  * 2. Mandate creation with validation (server-derived role, privacy)
  * 3. Utility calculation for both parties
  * 4. Agreement proposal with RFC-8785 canonical hash
- * 5. Dual acceptance → deal transitions to AGREED
+ * 5. Dual acceptance ΓåÆ deal transitions to AGREED
  * 6. Stale version/hash rejection
  * 7. No mandate data leakage to counterparty
  */
@@ -58,8 +60,10 @@ class PhaseA7IntegrationTest {
     @Autowired private ObjectMapper mapper;
     @Autowired private UserRepository userRepository;
     @Autowired private DealService dealService;
+    @Autowired private DealRepository dealRepository;
     @Autowired private MandateService mandateService;
     @Autowired private AgreementService agreementService;
+    @Autowired private UtilityCalculator utilityCalculator;
 
     private static final List<String> DELIVERED = List.of("figma", "source", "notes");
 
@@ -77,10 +81,9 @@ class PhaseA7IntegrationTest {
         // 1. Create deal with buyer and seller
         User buyer = makeUser("e2e-buyer@test.com");
         User seller = makeUser("e2e-seller@test.com");
-        Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
+        Deal deal = dealRepository.save(new Deal(UUID.randomUUID(), buyer.getId(), seller.getId(), DealStatus.ACTIVE_NEGOTIATION));
         assertNotNull(deal.getId());
-        assertEquals(DealStatus.DRAFT, deal.getStatus());
-        dealService.setStatus(deal.getId(), DealStatus.ACTIVE_NEGOTIATION);
+        assertEquals(DealStatus.ACTIVE_NEGOTIATION, deal.getStatus());
 
         // 2. Buyer creates mandate
         MandateDTO buyerMandateDto = new MandateDTO("mandate-1", deal.getId().toString(), PartyRole.BUYER, 1, "USD",
@@ -123,7 +126,8 @@ class PhaseA7IntegrationTest {
         // 5. Propose agreement (as buyer via controller)
         String proposeResponse = mockMvc.perform(post("/api/v1/deals/{dealId}/agreements/propose", deal.getId())
                         .with(user(userDetails(buyer)))
-                        .header("Idempotency-Key", "propose-1")
+                        .requestAttr("userId", buyer.getId())
+                        .header("Idempotency-Key", "propose-a7-1")
                         .contentType("application/json")
                         .content(mapper.writeValueAsString(terms)))
                 .andExpect(status().isOk())
@@ -145,7 +149,7 @@ class PhaseA7IntegrationTest {
         assertNull(afterBuyer.sellerAcceptedAt());
         assertNotEquals(DealStatus.AGREED, dealService.getDeal(deal.getId()).getStatus());
 
-        // 7. Seller accepts → deal transitions to AGREED
+        // 7. Seller accepts ΓåÆ deal transitions to AGREED
         AgreementSnapshotDTO afterSeller = agreementService.acceptAgreement(
                 deal.getId(), snap.version(), snap.termsHashSha256(), "SELLER");
         assertNotNull(afterSeller.buyerAcceptedAt());
@@ -155,7 +159,7 @@ class PhaseA7IntegrationTest {
         // 8. Stale version/hash rejection
         assertThrows(AgreementConflictException.class,
                 () -> agreementService.acceptAgreement(deal.getId(), snap.version(), "0".repeat(64), "BUYER"));
-        assertThrows(com.payagent.agreements.AgreementNotFoundException.class,
+        assertThrows(AgreementNotFoundException.class,
                 () -> agreementService.acceptAgreement(deal.getId(), snap.version() + 1, snap.termsHashSha256(), "BUYER"));
 
         // 9. Mandate privacy: seller cannot retrieve buyer's mandate via GET /me as seller
@@ -170,7 +174,7 @@ class PhaseA7IntegrationTest {
         User buyer1 = makeUser("privacy-b1@test.com");
         User seller1 = makeUser("privacy-s1@test.com");
         User buyer2 = makeUser("privacy-b2@test.com");
-        Deal deal = dealService.createDeal(buyer1.getId(), seller1.getId());
+        Deal deal = dealRepository.save(new Deal(UUID.randomUUID(), buyer1.getId(), seller1.getId(), DealStatus.ACTIVE_NEGOTIATION));
 
         MandateService.MandateCreateRequest req = new MandateService.MandateCreateRequest(
                 "USD", 100000L, 80000L, 30, 10, 0, 3,
@@ -180,7 +184,8 @@ class PhaseA7IntegrationTest {
 
         // buyer2 (not a participant) cannot access the mandate
         mockMvc.perform(get("/api/v1/deals/{dealId}/mandates", deal.getId())
-                        .with(user(userDetails(buyer2))))
+                        .with(user(userDetails(buyer2)))
+                        .requestAttr("userId", buyer2.getId()))
                 .andExpect(status().isForbidden());
     }
 
@@ -188,23 +193,23 @@ class PhaseA7IntegrationTest {
     void mandateValidation_rejectsInvalidData() {
         User buyer = makeUser("val-b@test.com");
         User seller = makeUser("val-s@test.com");
-        Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
+        Deal deal = dealRepository.save(new Deal(UUID.randomUUID(), buyer.getId(), seller.getId(), DealStatus.ACTIVE_NEGOTIATION));
 
-        // Buyer: limitPrice < targetPrice → invalid
+        // Buyer: limitPrice < targetPrice ΓåÆ invalid
         MandateService.MandateCreateRequest invalidBuyerReq = new MandateService.MandateCreateRequest(
                 "USD", 70000L, 80000L, 30, 10, 0, 3,
                 List.of(), List.of(), NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2026-12-31T23:59:59Z"));
         assertThrows(IllegalArgumentException.class,
                 () -> mandateService.createMandate(deal.getId(), buyer.getId(), invalidBuyerReq));
 
-        // Seller: limitPrice > targetPrice → invalid
+        // Seller: limitPrice > targetPrice ΓåÆ invalid
         MandateService.MandateCreateRequest invalidSellerReq = new MandateService.MandateCreateRequest(
                 "USD", 110000L, 100000L, 10, 30, 5, 1,
                 List.of(), List.of(), NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2026-12-31T23:59:59Z"));
         assertThrows(IllegalArgumentException.class,
                 () -> mandateService.createMandate(deal.getId(), seller.getId(), invalidSellerReq));
 
-        // Past expiry → invalid
+        // Past expiry ΓåÆ invalid
         MandateService.MandateCreateRequest pastExpiryReq = new MandateService.MandateCreateRequest(
                 "USD", 100000L, 80000L, 30, 10, 0, 3,
                 List.of(), List.of(), NegotiationMode.ASSISTED, 5, OffsetDateTime.parse("2020-01-01T00:00:00Z"));

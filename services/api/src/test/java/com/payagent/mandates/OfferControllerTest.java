@@ -5,9 +5,11 @@ import com.payagent.auth.UserRepository;
 import com.payagent.common.contracts.MandateDTO;
 import com.payagent.common.contracts.NegotiationMode;
 import com.payagent.common.contracts.OfferDTO;
+import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.PartyRole;
 import com.payagent.common.contracts.StructuredTermsDTO;
 import com.payagent.deals.Deal;
+import com.payagent.deals.DealRepository;
 import com.payagent.deals.DealService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -47,6 +49,8 @@ class OfferControllerTest {
     @Autowired private ObjectMapper mapper;
     @Autowired private UserRepository userRepository;
     @Autowired private DealService dealService;
+
+    @Autowired private DealRepository dealRepository;
     @Autowired private MandateService mandateService;
 
     private static final List<String> DELIVERED = List.of("figma", "source", "notes");
@@ -56,9 +60,7 @@ class OfferControllerTest {
     }
 
     private Deal makeDeal(User buyer, User seller) {
-        Deal deal = dealService.createDeal(buyer.getId(), seller.getId());
-        dealService.setStatus(deal.getId(), com.payagent.common.contracts.DealStatus.ACTIVE_NEGOTIATION);
-        return deal;
+        return dealRepository.save(new Deal(UUID.randomUUID(), buyer.getId(), seller.getId(), DealStatus.ACTIVE_NEGOTIATION));
     }
 
     private UserDetails userDetails(User u) {
@@ -210,7 +212,7 @@ class OfferControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roundNumber").value(1));
 
-        // Same key + same request → replay
+        // Same key + same request ΓåÆ replay
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "replay-offer-1")
@@ -242,7 +244,7 @@ class OfferControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roundNumber").value(1));
 
-        // Same key + different terms → 409
+        // Same key + different terms ΓåÆ 409
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "conflict-offer-1")
@@ -265,7 +267,7 @@ class OfferControllerTest {
         mandateService.createMandate(dealId, buyer.getId(), req);
 
         // Terms at buyer target: price=80000, delivery=10, revisions=3
-        // uP=1.0, uD=1.0, uR=1.0 → U_B = 0.6*1.0 + 0.25*1.0 + 0.15*1.0 = 1.0000
+        // uP=1.0, uD=1.0, uR=1.0 ΓåÆ U_B = 0.6*1.0 + 0.25*1.0 + 0.15*1.0 = 1.0000
         mockMvc.perform(post("/api/v1/deals/{dealId}/offers", dealId)
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "utility-key-1")

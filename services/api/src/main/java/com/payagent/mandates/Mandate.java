@@ -1,14 +1,40 @@
 package com.payagent.mandates;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.payagent.common.contracts.NegotiationMode;
 import com.payagent.common.contracts.PartyRole;
 import jakarta.persistence.*;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "mandates", uniqueConstraints = @UniqueConstraint(columnNames = {"deal_id", "party_role", "version"}))
 public class Mandate {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    public static String toJson(List<String> terms) {
+        try {
+            return JSON.writeValueAsString(terms);
+        } catch (Exception e) {
+            return "[]";
+        }
+    }
+
+    public static List<String> fromJson(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return JSON.readValue(json, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
     @Id
     @Column(columnDefinition = "UUID")
     private UUID id;
@@ -44,9 +70,11 @@ public class Mandate {
     @Column(name = "target_revisions", nullable = false)
     private Integer targetRevisions;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "must_have_deliverables", columnDefinition = "jsonb", nullable = false)
     private String mustHaveDeliverablesJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "forbidden_terms", columnDefinition = "jsonb", nullable = false)
     private String forbiddenTermsJson;
 

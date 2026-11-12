@@ -19,6 +19,7 @@ import com.payagent.settlement.persistence.PayPalEventRepository;
 import com.payagent.settlement.persistence.PaymentEntity;
 import com.payagent.settlement.persistence.PaymentRepository;
 import com.payagent.settlement.port.AuditEventPort;
+import com.payagent.settlement.port.DealPort;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -53,7 +54,7 @@ class ReconciliationRecoveryTest {
         when(paymentRepository.findOpenCaptureAttemptsForUpdate(any(), any())).thenReturn(List.of());
         when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(any())).thenReturn(Optional.empty());
         reconciliationService = new SettlementReconciliationService(
-                eventRepository, invoiceRepository, paymentRepository, invoiceService, orderService, auditEventPort);
+                eventRepository, invoiceRepository, paymentRepository, invoiceService, orderService, auditEventPort, mock(DealPort.class));
     }
 
     @Test

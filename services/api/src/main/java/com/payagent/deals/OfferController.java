@@ -21,20 +21,18 @@ import java.util.UUID;
 public class OfferController {
 
     private final DealService dealService;
-    private final DealRepository dealRepository;
     private final MandateService mandateService;
     private final UtilityCalculator utilityCalculator;
     private final IdempotencyService idempotencyService;
-    private final OfferRepository offerRepository;
+    private final OfferRecorder offerRecorder;
     private final AuditEventPort auditEventPort;
 
-    public OfferController(DealService dealService, DealRepository dealRepository, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService, OfferRepository offerRepository, AuditEventPort auditEventPort) {
+    public OfferController(DealService dealService, MandateService mandateService, UtilityCalculator utilityCalculator, IdempotencyService idempotencyService, OfferRecorder offerRecorder, AuditEventPort auditEventPort) {
         this.dealService = dealService;
-        this.dealRepository = dealRepository;
         this.mandateService = mandateService;
         this.utilityCalculator = utilityCalculator;
         this.idempotencyService = idempotencyService;
-        this.offerRepository = offerRepository;
+        this.offerRecorder = offerRecorder;
         this.auditEventPort = auditEventPort;
     }
 
@@ -43,8 +41,9 @@ public class OfferController {
             @PathVariable("id") UUID dealId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody OfferRequest req,
+            @RequestAttribute(value = "userId", required = false) UUID userIdAttr,
             Principal principal) {
-        UUID userId = resolveUserId(principal);
+        UUID userId = resolveUserId(userIdAttr, principal);
         PartyRole role = dealService.requireMembership(dealId, userId);
         // verify deal state
         Deal deal = dealService.getDeal(dealId);
@@ -61,15 +60,27 @@ public class OfferController {
                 () -> {
                     // validate mandate
                     com.payagent.common.contracts.MandateDTO mandate = mandateService.getMandateForUser(dealId, userId);
-                    // basic validation
-                    if (req.terms.priceMinorUnits() > mandate.limitPriceMinorUnits()) {
-                        throw new IllegalArgumentException("Offer price exceeds mandate limit");
-                    }
-                    if (req.terms.deliveryDays() > mandate.limitDeliveryDays()) {
-                        throw new IllegalArgumentException("Offer delivery exceeds mandate limit");
-                    }
-                    if (req.terms.includedRevisions() < mandate.limitRevisions()) {
-                        throw new IllegalArgumentException("Offer revisions below mandate limit");
+                    // basic validation (BUYER limit is a ceiling, SELLER limit is a floor; revisions invert)
+                    if (role == PartyRole.BUYER) {
+                        if (req.terms.priceMinorUnits() > mandate.limitPriceMinorUnits()) {
+                            throw new IllegalArgumentException("Offer price exceeds mandate limit");
+                        }
+                        if (req.terms.deliveryDays() > mandate.limitDeliveryDays()) {
+                            throw new IllegalArgumentException("Offer delivery exceeds mandate limit");
+                        }
+                        if (req.terms.includedRevisions() < mandate.limitRevisions()) {
+                            throw new IllegalArgumentException("Offer revisions below mandate limit");
+                        }
+                    } else {
+                        if (req.terms.priceMinorUnits() < mandate.limitPriceMinorUnits()) {
+                            throw new IllegalArgumentException("Offer price below mandate limit");
+                        }
+                        if (req.terms.deliveryDays() < mandate.limitDeliveryDays()) {
+                            throw new IllegalArgumentException("Offer delivery below mandate limit");
+                        }
+                        if (req.terms.includedRevisions() > mandate.limitRevisions()) {
+                            throw new IllegalArgumentException("Offer revisions exceed mandate limit");
+                        }
                     }
                     // utility veto
                     BigDecimal utility = utilityCalculator.buyerUtility(mandate, req.terms);
@@ -81,50 +92,24 @@ public class OfferController {
                     }
                     String utilityScore = utility.setScale(4, java.math.RoundingMode.HALF_UP).toPlainString();
                     String rationale = req.message() == null ? "" : req.message();
-                    // lock parent deal to serialize round allocation per deal
-                    dealRepository.findByIdForUpdate(dealId)
-                            .orElseThrow(() -> new IllegalArgumentException("Deal not found"));
-                    // determine next round number
-                    Integer maxRound = offerRepository.findMaxRoundNumberByDealId(dealId);
-                    int nextRound = (maxRound == null) ? 1 : maxRound + 1;
-                    UUID offerId = UUID.randomUUID();
-                    Offer offerEntity = new Offer(
-                            offerId,
-                            dealId,
-                            nextRound,
-                            role,
-                            false,
-                            req.terms,
-                            rationale,
-                            utilityScore,
-                            true
-                    );
-                    Offer saved = offerRepository.save(offerEntity);
-                    OfferDTO offer = new OfferDTO(
-                            saved.getId().toString(),
-                            saved.getDealId().toString(),
-                            saved.getRoundNumber(),
-                            saved.getProposerRole(),
-                            saved.getGeneratedByAgent(),
-                            req.terms,
-                            saved.getRationaleSummary(),
-                            saved.getCallerUtilityScore(),
-                            saved.getMandateCompliant(),
-                            saved.getCreatedAt().toString()
-                    );
+                    // persistence runs inside OfferRecorder's own transaction boundary
+                    OfferDTO offer = offerRecorder.recordOffer(dealId, role, req.terms, rationale, utilityScore);
                     auditEventPort.recordEvent(dealId, "OFFER_SUBMITTED", Map.of(
-                            "offerId", saved.getId().toString(),
-                            "roundNumber", saved.getRoundNumber(),
-                            "proposerRole", saved.getProposerRole().name(),
+                            "offerId", offer.offerId(),
+                            "roundNumber", offer.roundNumber(),
+                            "proposerRole", offer.proposerRole().name(),
                             "userId", userId.toString(),
-                            "utilityScore", saved.getCallerUtilityScore()
+                            "utilityScore", offer.callerUtilityScore()
                     ));
                     return ResponseEntity.ok(offer);
                 }
         );
     }
 
-    private UUID resolveUserId(Principal principal) {
+    private UUID resolveUserId(UUID userIdAttr, Principal principal) {
+        if (userIdAttr != null) {
+            return userIdAttr;
+        }
         try {
             return UUID.fromString(principal.getName());
         } catch (Exception e) {

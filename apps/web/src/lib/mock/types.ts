@@ -39,6 +39,7 @@ export interface MockDeal {
   sellerMandate: MandateDTO | null;
   offers: OfferDTO[];
   currentAgreement: AgreementSnapshotDTO | null;
+  previousAgreementTerms?: StructuredTermsDTO;
   settlement: SettlementStateDTO;
   evidenceList: DeliverableEvidenceDTO[];
   disputeStatus: DisputeStatus;

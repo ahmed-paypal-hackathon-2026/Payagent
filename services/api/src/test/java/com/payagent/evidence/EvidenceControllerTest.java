@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -67,11 +69,92 @@ class EvidenceControllerTest {
         );
 
         mockMvc.perform(multipart("/api/v1/deals/{id}/evidence", dealId)
-                        .file(file))
+                        .file(file)
+                        .header("Idempotency-Key", "evidence-upload-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidenceId").value(evidenceId.toString()))
                 .andExpect(jsonPath("$.filename").value("deliverable.zip"))
                 .andExpect(jsonPath("$.version").value(1));
+    }
+
+    @Test
+    @WithMockUser(username = "seller@test.local")
+    void uploadEvidence_repeatedSameKey_replaysOriginalResponseAndStoresOnce() throws Exception {
+        UUID dealId = UUID.randomUUID();
+        UUID evidenceId = UUID.randomUUID();
+
+        DeliverableEvidenceDTO dto = new DeliverableEvidenceDTO(
+                evidenceId.toString(),
+                dealId.toString(),
+                PartyRole.SELLER,
+                "deliverable.zip",
+                "application/zip",
+                1024L,
+                "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                1,
+                "/api/v1/deals/" + dealId + "/evidence/" + evidenceId + "/download?expires=123&sig=abc",
+                "2026-10-22T14:00:00Z"
+        );
+
+        when(evidenceStorageService.storeEvidence(eq(dealId), any(), eq("seller@test.local")))
+                .thenReturn(dto);
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "deliverable.zip",
+                "application/zip",
+                "test-content".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/v1/deals/{id}/evidence", dealId)
+                        .file(file)
+                        .header("Idempotency-Key", "evidence-upload-replay"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceId").value(evidenceId.toString()));
+
+        mockMvc.perform(multipart("/api/v1/deals/{id}/evidence", dealId)
+                        .file(file)
+                        .header("Idempotency-Key", "evidence-upload-replay"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceId").value(evidenceId.toString()));
+
+        verify(evidenceStorageService, times(1)).storeEvidence(eq(dealId), any(), eq("seller@test.local"));
+    }
+
+    @Test
+    @WithMockUser(username = "seller@test.local")
+    void uploadEvidence_sameKeyDifferentPayload_conflict() throws Exception {
+        UUID dealId = UUID.randomUUID();
+
+        when(evidenceStorageService.storeEvidence(eq(dealId), any(), eq("seller@test.local")))
+                .thenReturn(new DeliverableEvidenceDTO(
+                        UUID.randomUUID().toString(),
+                        dealId.toString(),
+                        PartyRole.SELLER,
+                        "deliverable.zip",
+                        "application/zip",
+                        1024L,
+                        "hash",
+                        1,
+                        "http://localhost/download",
+                        "2026-10-22T14:00:00Z"
+                ));
+
+        MockMultipartFile fileA = new MockMultipartFile(
+                "file", "deliverable.zip", "application/zip", "content-a".getBytes());
+        MockMultipartFile fileB = new MockMultipartFile(
+                "file", "deliverable.zip", "application/zip", "content-b".getBytes());
+
+        mockMvc.perform(multipart("/api/v1/deals/{id}/evidence", dealId)
+                        .file(fileA)
+                        .header("Idempotency-Key", "evidence-upload-conflict"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(multipart("/api/v1/deals/{id}/evidence", dealId)
+                        .file(fileB)
+                        .header("Idempotency-Key", "evidence-upload-conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("IDEMPOTENCY_CONFLICT"));
     }
 
     @Test

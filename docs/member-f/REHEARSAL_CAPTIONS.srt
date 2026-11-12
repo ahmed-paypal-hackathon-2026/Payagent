@@ -1,0 +1,148 @@
+1
+00:00:00,000 --> 00:00:05,000
+Payagent connects a freelance negotiation to a
+versioned agreement and a PayPal
+
+2
+00:00:05,000 --> 00:00:10,000
+Sandbox payment workflow. In this rehearsal, a
+client needs a landing page
+
+3
+00:00:10,000 --> 00:00:15,000
+and a freelancer wants clear scope, timing,
+and payment terms.
+
+4
+00:00:15,000 --> 00:00:21,250
+The buyer sets a maximum budget of one
+thousand dollars, a delivery
+
+5
+00:00:21,250 --> 00:00:27,500
+deadline, and a minimum number of revisions.
+The seller sets a price
+
+6
+00:00:27,500 --> 00:00:33,750
+floor and delivery constraints. Each party
+should see their own private mandate.
+
+7
+00:00:33,750 --> 00:00:40,000
+The counterparty should receive proposed
+terms, rather than those private limits.
+
+8
+00:00:40,000 --> 00:00:45,000
+The agents propose terms across price,
+delivery, revisions, and scope. Deterministic
+checks
+
+9
+00:00:45,000 --> 00:00:50,000
+enforce the delegated boundaries. A proposal
+one cent above the buyer ceiling
+
+10
+00:00:50,000 --> 00:00:55,000
+must be rejected. The model may help with
+language, but its output
+
+11
+00:00:55,000 --> 00:01:00,000
+must never authorize a payment or change a
+financial decision on its
+
+12
+00:01:00,000 --> 00:01:05,000
+own.
+
+13
+00:01:05,000 --> 00:01:10,000
+Both parties accept the same agreement version
+and the same terms fingerprint.
+
+14
+00:01:10,000 --> 00:01:15,000
+Changing even one cent creates a new version
+and invalidates earlier consent.
+
+15
+00:01:15,000 --> 00:01:20,000
+Before recording this scene, verify that the
+real application rejects the old
+
+16
+00:01:20,000 --> 00:01:25,000
+version and requires fresh acceptance.
+
+17
+00:01:25,000 --> 00:01:31,250
+The invoice records the commercial agreement.
+A separate PayPal order requests authorization
+
+18
+00:01:31,250 --> 00:01:37,500
+after the buyer approves. On screen, compare
+the agreed amount and currency
+
+19
+00:01:37,500 --> 00:01:43,750
+with the actual Sandbox records. An
+authorization is not escrow or guaranteed
+
+20
+00:01:43,750 --> 00:01:50,000
+settlement. Show only real identifiers from
+this recorded test deal.
+
+21
+00:01:50,000 --> 00:01:56,250
+The seller uploads the agreed deliverable. The
+application records its fingerprint and
+
+22
+00:01:56,250 --> 00:02:02,500
+restricts access to the participants. The
+buyer reviews the file and accepts
+
+23
+00:02:02,500 --> 00:02:08,750
+delivery. Only then should the payment
+workflow capture the authorization. Confirm
+the
+
+24
+00:02:08,750 --> 00:02:15,000
+completed Sandbox capture and the linked
+invoice record before claiming success.
+
+25
+00:02:15,000 --> 00:02:18,750
+Use a separate deal to demonstrate a dispute
+before capture. Opening the
+
+26
+00:02:18,750 --> 00:02:22,500
+dispute should block automated payment
+release. A dispute cannot undo a capture
+
+27
+00:02:22,500 --> 00:02:26,250
+that already completed. This scene remains
+pending until the team implements and
+
+28
+00:02:26,250 --> 00:02:30,000
+verifies dispute creation.
+
+29
+00:02:30,000 --> 00:02:35,000
+Payagent is a Sandbox prototype. Present the
+tested behavior, disclose any fallback
+
+30
+00:02:35,000 --> 00:02:40,000
+or missing feature, and end with verified
+repository and demo links.

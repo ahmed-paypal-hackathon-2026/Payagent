@@ -4,8 +4,10 @@ import com.payagent.auth.User;
 import com.payagent.auth.UserRepository;
 import com.payagent.common.contracts.MandateDTO;
 import com.payagent.common.contracts.NegotiationMode;
+import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.PartyRole;
 import com.payagent.deals.Deal;
+import com.payagent.deals.DealRepository;
 import com.payagent.deals.DealService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,8 @@ class MandateControllerTest {
     @Autowired private ObjectMapper mapper;
     @Autowired private UserRepository userRepository;
     @Autowired private DealService dealService;
+
+    @Autowired private DealRepository dealRepository;
     @Autowired private MandateService mandateService;
 
     private User makeUser(String email) {
@@ -46,7 +50,7 @@ class MandateControllerTest {
     }
 
     private Deal makeDeal(User buyer, User seller) {
-        return dealService.createDeal(buyer.getId(), seller.getId());
+        return dealRepository.save(new Deal(UUID.randomUUID(), buyer.getId(), seller.getId(), DealStatus.ACTIVE_NEGOTIATION));
     }
 
     private String mandateJson(UUID dealId, int version) throws Exception {
@@ -146,7 +150,8 @@ class MandateControllerTest {
         mandateService.createMandate(deal.getId(), buyer.getId(), req);
 
         mockMvc.perform(get("/api/v1/deals/{dealId}/mandates", deal.getId())
-                        .with(user(userDetails(buyer))))
+                        .with(user(userDetails(buyer)))
+                        .requestAttr("userId", buyer.getId()))
                 .andExpect(status().isOk());
     }
 
@@ -166,7 +171,7 @@ class MandateControllerTest {
                         .content(mandateJson(deal.getId(), 1)))
                 .andExpect(status().isOk());
 
-        // Same key + same request → should succeed (idempotent replay)
+        // Same key + same request ΓåÆ should succeed (idempotent replay)
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "replay-key-1")
@@ -189,7 +194,7 @@ class MandateControllerTest {
                         .content(mandateJson(deal.getId(), 1)))
                 .andExpect(status().isOk());
 
-        // Same key + different version → 409 Conflict
+        // Same key + different version ΓåÆ 409 Conflict
         mockMvc.perform(post("/api/v1/deals/{dealId}/mandates", deal.getId())
                         .with(user(userDetails(buyer)))
                         .header("Idempotency-Key", "conflict-key-1")
@@ -197,4 +202,5 @@ class MandateControllerTest {
                         .content(mandateJson(deal.getId(), 2)))
                 .andExpect(status().isConflict());
     }
+
 }
