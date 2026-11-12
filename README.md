@@ -1,6 +1,6 @@
 <div align="center">
 
-![Payagent · The agreement workspace](docs/member-f/readme-media/agreement-cover.jpg)
+![Payagent · From agreement to payment](docs/member-f/readme-media/payagent-cover.jpg)
 
 **A shared workspace for buyers and contractors, from the first offer to PayPal Sandbox settlement.**
 
