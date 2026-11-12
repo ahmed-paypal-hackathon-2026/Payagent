@@ -19,4 +19,6 @@ public interface AgreementRepository extends JpaRepository<Agreement, UUID> {
     Optional<Agreement> findByDealIdAndVersionForUpdate(@Param("dealId") UUID dealId, @Param("version") Integer version);
 
     Optional<Agreement> findTopByDealIdOrderByVersionDesc(UUID dealId);
+
+    java.util.List<Agreement> findByTermsHashSha256(String termsHashSha256);
 }

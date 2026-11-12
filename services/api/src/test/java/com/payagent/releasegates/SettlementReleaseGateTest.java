@@ -7,6 +7,7 @@ import com.payagent.settlement.*;
 import com.payagent.settlement.exception.*;
 import com.payagent.settlement.persistence.*;
 import com.payagent.settlement.port.*;
+import com.payagent.agreements.AgreementRepository;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -50,7 +51,7 @@ class SettlementReleaseGateTest {
         when(events.insertIfAbsent(any(), any(), any(), any())).thenReturn(1, 0);
         when(payments.findByPaypalAuthorizationId(authId)).thenReturn(Optional.of(payment));
         SettlementReconciliationService service = new SettlementReconciliationService(events, invoices, payments,
-                mock(PayPalInvoiceService.class), mock(PayPalOrderService.class), audit, mock(com.payagent.settlement.port.DealPort.class));
+                mock(PayPalInvoiceService.class), mock(PayPalOrderService.class), audit, mock(com.payagent.settlement.port.DealPort.class), mock(AgreementRepository.class));
         String payload = fixture.get("payload").toString();
         assertEquals(SettlementReconciliationService.WebhookProcessingResult.PROCESSED,
                 service.processWebhookEvent(eventId, fixture.get("eventType").asText(), authId, fixture.at("/payload/resource"), payload));
@@ -94,7 +95,7 @@ class SettlementReleaseGateTest {
         AuditEventPort audit = mock(AuditEventPort.class);
         UUID dealId = UUID.randomUUID();
         when(deals.isDealDisputed(dealId)).thenReturn(true);
-        SettlementService service = new SettlementService(invoices, orders, invoiceRepository, payments, deals, audit, mock(com.payagent.settlement.CaptureAttemptService.class));
+        SettlementService service = new SettlementService(invoices, orders, invoiceRepository, payments, deals, audit, mock(com.payagent.settlement.CaptureAttemptService.class), mock(PayPalEventRepository.class));
         assertThrows(SettlementConflictException.class,
                 () -> service.acceptDeliverables(dealId, 1, "disputed-capture", "buyer@example.com"));
         verify(deals).assertBuyer(dealId, "buyer@example.com");
@@ -115,7 +116,7 @@ class SettlementReleaseGateTest {
         when(orders.mapOrderStatus("UNRECOGNIZED")).thenReturn(PaymentLifecycleStatus.UNKNOWN);
         when(orders.mapOrderStatus("COMPLETED")).thenReturn(PaymentLifecycleStatus.COMPLETED);
         SettlementReconciliationService service = new SettlementReconciliationService(mock(PayPalEventRepository.class),
-                invoices, payments, mock(PayPalInvoiceService.class), orders, mock(AuditEventPort.class), mock(com.payagent.settlement.port.DealPort.class));
+                invoices, payments, mock(PayPalInvoiceService.class), orders, mock(AuditEventPort.class), mock(com.payagent.settlement.port.DealPort.class), mock(AgreementRepository.class));
         service.reconcileDeal(dealId);
         assertEquals(PaymentLifecycleStatus.UNKNOWN, payment.getLifecycleStatus());
         verify(payments, never()).save(any());

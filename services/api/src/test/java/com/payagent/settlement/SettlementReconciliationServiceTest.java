@@ -1,10 +1,11 @@
 package com.payagent.settlement;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,6 +24,8 @@ import com.payagent.settlement.persistence.PayPalEventEntity;
 import com.payagent.settlement.persistence.PayPalEventRepository;
 import com.payagent.settlement.persistence.PaymentEntity;
 import com.payagent.settlement.persistence.PaymentRepository;
+import com.payagent.agreements.AgreementRepository;
+import com.payagent.agreements.Agreement;
 import com.payagent.settlement.port.AuditEventPort;
 import com.payagent.settlement.port.DealPort;
 import java.util.Optional;
@@ -39,6 +42,7 @@ class SettlementReconciliationServiceTest {
     private PayPalOrderService orderService;
     private AuditEventPort auditEventPort;
     private DealPort dealPort;
+    private AgreementRepository agreementRepository;
     private SettlementReconciliationService reconciliationService;
     private ObjectMapper objectMapper;
 
@@ -51,6 +55,7 @@ class SettlementReconciliationServiceTest {
         orderService = mock(PayPalOrderService.class);
         auditEventPort = mock(AuditEventPort.class);
         dealPort = mock(DealPort.class);
+        agreementRepository = mock(AgreementRepository.class);
 
         when(eventRepository.insertIfAbsent(anyString(), anyString(), nullable(String.class), anyString())).thenReturn(1);
 
@@ -61,9 +66,87 @@ class SettlementReconciliationServiceTest {
                 invoiceService,
                 orderService,
                 auditEventPort,
-                dealPort
+                dealPort,
+                agreementRepository
         );
         objectMapper = new ObjectMapper();
+    }
+
+    private Agreement sampleAgreementWithHash(UUID dealId, int version, String hash) {
+        return new Agreement(UUID.randomUUID(), dealId, version,
+                "{\"title\":\"Synthetic\",\"deliverables\":[\"a\"],\"priceMinorUnits\":98000,\"currency\":\"USD\",\"deliveryDays\":7,\"includedRevisions\":2,\"acceptanceCriteriaText\":\"x\"}",
+                hash);
+    }
+
+    private String termsHash() {
+        return "0f64e83c1ef12560e7c916abd1661fe0de5bf5d07e0dd2a4b022dcdc82654a7e";
+    }
+
+    private String invoicePayload(String hash) {
+        return """
+                {"id":"WH-SYNTH-CREATED-1","event_type":"INVOICING.INVOICE.CREATED",
+                 "resource":{"invoice":{
+                   "id":"INV2-SYNTH-XWZE-DK3Y-0001","status":"DRAFT",
+                   "detail":{"invoice_number":"0006","note":"termsHashSha256: %s | Deliverables: Synthetic deliverable"},
+                   "primary_recipients":[{"billing_info":{"email_address":"buyer@example.test"}}],
+                   "invoicer":{"email_address":"seller@example.test"},
+                   "amount":{"currency_code":"USD","value":"980.00"}
+                 }}}
+                """.formatted(hash);
+    }
+
+    @Test
+    void invoiceCreatedWithMatchingHashPersistsAndIsIdempotent() throws Exception {
+        UUID dealId = UUID.randomUUID();
+        Agreement agreement = sampleAgreementWithHash(dealId, 1, termsHash());
+        when(agreementRepository.findByTermsHashSha256(termsHash()))
+                .thenReturn(java.util.List.of(agreement));
+        when(dealPort.getBuyerEmail(dealId)).thenReturn("buyer@example.test");
+        when(dealPort.getSellerEmail(dealId)).thenReturn("seller@example.test");
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-SYNTH-XWZE-DK3Y-0001")).thenReturn(Optional.empty());
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-NEW-CREATED-1", "INVOICING.INVOICE.CREATED", "INV2-SYNTH-XWZE-DK3Y-0001",
+                objectMapper.readTree(invoicePayload(termsHash())).path("resource").path("invoice"),
+                invoicePayload(termsHash()));
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
+        verify(invoiceRepository, times(1)).save(any(InvoiceEntity.class));
+
+        // Re-delivery must not duplicate rows
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-SYNTH-XWZE-DK3Y-0001"))
+                .thenReturn(Optional.of(new InvoiceEntity(UUID.randomUUID(), dealId, 1,
+                        InvoiceLifecycleStatus.DRAFT, "INV2-SYNTH-XWZE-DK3Y-0001", "0006",
+                        "url", 98000L, "USD")));
+        var again = reconciliationService.processWebhookEvent(
+                "EVT-NEW-CREATED-2", "INVOICING.INVOICE.CREATED", "INV2-SYNTH-XWZE-DK3Y-0001",
+                objectMapper.readTree(invoicePayload(termsHash())).path("resource").path("invoice"),
+                invoicePayload(termsHash()));
+        assertThat(again).isEqualTo(WebhookProcessingResult.PROCESSED);
+        verify(invoiceRepository, times(1)).save(any(InvoiceEntity.class));
+    }
+
+    @Test
+    void invoiceCreatedWithWrongHashIsIgnored() throws Exception {
+        when(agreementRepository.findByTermsHashSha256(anyString()))
+                .thenReturn(java.util.List.of());
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-CREATED-BAD", "INVOICING.INVOICE.CREATED", "INV2-SYNTH-XWZE-DK3Y-0001",
+                objectMapper.readTree(invoicePayload("deadbeef".repeat(8))).path("resource").path("invoice"),
+                invoicePayload("deadbeef".repeat(8)));
+        assertThat(result).isEqualTo(WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION);
+        verify(invoiceRepository, never()).save(any());
+    }
+
+    @Test
+    void invoiceCreatedWithMissingInvoiceNodeIsIgnored() throws Exception {
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-CREATED-MISSING", "INVOICING.INVOICE.CREATED", null,
+                objectMapper.readTree("{\"id\":\"WH-NO-INVOICE\",\"resource\":{}}").path("resource"),
+                "{}");
+        assertThat(result).isEqualTo(WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION);
+        verify(invoiceRepository, never()).save(any());
     }
 
     @Test

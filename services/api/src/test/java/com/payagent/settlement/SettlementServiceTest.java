@@ -34,6 +34,7 @@ import com.payagent.settlement.persistence.InvoiceEntity;
 import com.payagent.settlement.persistence.InvoiceRepository;
 import com.payagent.settlement.persistence.PaymentEntity;
 import com.payagent.settlement.persistence.PaymentRepository;
+import com.payagent.settlement.persistence.PayPalEventRepository;
 import com.payagent.settlement.port.AuditEventPort;
 import com.payagent.settlement.port.DealPort;
 import java.time.Instant;
@@ -53,6 +54,7 @@ class SettlementServiceTest {
     private DealPort dealPort;
     private AuditEventPort auditEventPort;
     private CaptureAttemptService captureAttemptService;
+    private PayPalEventRepository payPalEventRepository;
     private SettlementService settlementService;
 
     private final UUID dealId = UUID.randomUUID();
@@ -69,6 +71,7 @@ class SettlementServiceTest {
         dealPort = mock(DealPort.class);
         auditEventPort = mock(AuditEventPort.class);
         captureAttemptService = mock(CaptureAttemptService.class);
+        payPalEventRepository = mock(PayPalEventRepository.class);
 
         settlementService = new SettlementService(
                 invoiceService,
@@ -77,7 +80,8 @@ class SettlementServiceTest {
                 paymentRepository,
                 dealPort,
                 auditEventPort,
-                captureAttemptService
+                captureAttemptService,
+                payPalEventRepository
         );
 
         when(dealPort.getBuyerEmail(dealId)).thenReturn(buyerEmail);

@@ -6,6 +6,8 @@ import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.common.contracts.PaymentLifecycleStatus;
 import com.payagent.paypal.PayPalInvoiceService;
 import com.payagent.paypal.PayPalOrderService;
+import com.payagent.agreements.Agreement;
+import com.payagent.agreements.AgreementRepository;
 import com.payagent.settlement.persistence.InvoiceEntity;
 import com.payagent.settlement.persistence.InvoiceRepository;
 import com.payagent.settlement.persistence.PayPalEventEntity;
@@ -26,6 +28,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.payagent.agreements.Agreement;
+import com.payagent.agreements.AgreementRepository;
+
 @Service
 public class SettlementReconciliationService {
 
@@ -38,6 +43,7 @@ public class SettlementReconciliationService {
     private final PayPalOrderService orderService;
     private final AuditEventPort auditEventPort;
     private final DealPort dealPort;
+    private final AgreementRepository agreementRepository;
 
     public SettlementReconciliationService(
             PayPalEventRepository payPalEventRepository,
@@ -46,7 +52,8 @@ public class SettlementReconciliationService {
             PayPalInvoiceService invoiceService,
             PayPalOrderService orderService,
             AuditEventPort auditEventPort,
-            DealPort dealPort) {
+            DealPort dealPort,
+            AgreementRepository agreementRepository) {
         this.payPalEventRepository = payPalEventRepository;
         this.invoiceRepository = invoiceRepository;
         this.paymentRepository = paymentRepository;
@@ -54,6 +61,7 @@ public class SettlementReconciliationService {
         this.orderService = orderService;
         this.auditEventPort = auditEventPort;
         this.dealPort = dealPort;
+        this.agreementRepository = agreementRepository;
     }
 
     @Transactional
@@ -71,6 +79,13 @@ public class SettlementReconciliationService {
             throw new IllegalStateException("Unexpected paypal_events insert result for event " + eventId + ": " + inserted);
         }
         log.info("Persisted PayPal webhook event: id={}, type={}, resource={}", eventId, eventType, resourceId);
+
+        // PayPal nests invoice payloads under resource.invoice (verified against real delivery:
+        // INVOICING.INVOICE.CREATED), rather than directly under resource. Normalise for all INVOICING.* events.
+        if (eventType != null && eventType.startsWith("INVOICING.") && resourceNode != null && resourceNode.hasNonNull("invoice")) {
+            resourceNode = resourceNode.path("invoice");
+            resourceId = resourceNode.path("id").asText(null);
+        }
 
         // State machine reconciliation with explicit transition policy.
         return switch (eventType) {
@@ -96,6 +111,14 @@ public class SettlementReconciliationService {
                             : WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION;
             case "INVOICING.INVOICE.PAID" ->
                     handleInvoicePaid(resourceId)
+                            ? WebhookProcessingResult.PROCESSED
+                            : WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION;
+            case "INVOICING.INVOICE.CREATED" ->
+                    handleInvoiceCreated(resourceId, resourceNode)
+                            ? WebhookProcessingResult.PROCESSED
+                            : WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION;
+            case "INVOICING.INVOICE.SENT" ->
+                    handleInvoiceSent(resourceId, resourceNode)
                             ? WebhookProcessingResult.PROCESSED
                             : WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION;
             case "INVOICING.INVOICE.CANCELLED" ->
@@ -314,6 +337,25 @@ public class SettlementReconciliationService {
 
 
 
+    private Optional<Agreement> findUniqueAgreementByTermsHash(String termsHashSha256) {
+        java.util.List<Agreement> matches = agreementRepository.findByTermsHashSha256(termsHashSha256);
+        if (matches.isEmpty()) {
+            return Optional.empty();
+        }
+        java.util.Set<UUID> dealIds = new java.util.HashSet<>();
+        for (Agreement agreement : matches) {
+            dealIds.add(agreement.getDealId());
+        }
+        if (dealIds.size() != 1) {
+            log.warn("Cannot link invoice: {} distinct deals share terms hash {}", dealIds.size(), termsHashSha256);
+            return Optional.empty();
+        }
+        Agreement latest = matches.stream()
+                .max(java.util.Comparator.comparing(Agreement::getVersion))
+                .orElse(null);
+        return Optional.ofNullable(latest);
+    }
+
     private Optional<PaymentEntity> resolvePayment(JsonNode node, String captureId) {
         String authId = relatedId(node, "authorization_id", "parent_payment");
         if (authId != null) {
@@ -390,6 +432,177 @@ public class SettlementReconciliationService {
             }
             default -> throw new IllegalStateException("Unexpected guard result " + decision);
         }
+    }
+
+    private boolean handleInvoiceCreated(String invoiceId, JsonNode invoiceNode) {
+        if (invoiceNode == null || invoiceId == null || invoiceId.isBlank()) {
+            log.warn("Invoice-created webhook ignored: missing invoice node or id");
+            return false;
+        }
+        try {
+            Optional<InvoiceEntity> already = invoiceRepository.findByPaypalInvoiceId(invoiceId);
+            if (already.isPresent()) {
+                InvoiceEntity link = already.get();
+                log.info("Invoice-created webhook for already-linked invoice {} (deal {})", invoiceId, link.getDealId());
+                return true;
+            }
+            String note = invoiceNode.path("detail").path("note").asText(null);
+            String termsHash = extractTermsHash(note);
+            if (termsHash == null) {
+                log.warn("Invoice-created webhook ignored: no terms hash in detail.note (invoice {})", invoiceId);
+                return false;
+            }
+            Optional<Agreement> agreementOpt = findUniqueAgreementByTermsHash(termsHash);
+            if (agreementOpt.isEmpty()) {
+                log.warn("Invoice-created webhook ignored: no unique deal matches terms hash {}", termsHash);
+                return false;
+            }
+            Agreement agreement = agreementOpt.get();
+            String canonical = agreement.getCanonicalTermsJson();
+            com.payagent.common.contracts.StructuredTermsDTO canonicalTerms = readTerms(canonical);
+            if (canonicalTerms == null) {
+                log.warn("Invoice-created webhook ignored: could not read agreement terms for deal {}", agreement.getDealId());
+                return false;
+            }
+            long amountMinor = parseAmountToMinorUnits(invoiceNode.path("amount").path("value").asText(null));
+            String currency = invoiceNode.path("amount").path("currency_code").asText(null);
+            if (amountMinor < 0 || currency == null || amountMinor != canonicalTerms.priceMinorUnits()
+                    || !currency.equalsIgnoreCase(canonicalTerms.currency())) {
+                log.warn("Invoice-created webhook ignored: amount/currency mismatch for terms hash {}", termsHash);
+                return false;
+            }
+            String buyerEmail = dealPort.getBuyerEmail(agreement.getDealId());
+            String sellerEmail = dealPort.getSellerEmail(agreement.getDealId());
+            String recipient = invoiceNode.path("primary_recipients").path(0).path("billing_info").path("email_address").asText(null);
+            String invoicer = invoiceNode.path("invoicer").path("email_address").asText(null);
+            if (!equalsIgnoreCase(recipient, buyerEmail) || !equalsIgnoreCase(invoicer, sellerEmail)) {
+                log.warn("Invoice-created webhook ignored: buyer/seller email mismatch (terms hash {})", termsHash);
+                return false;
+            }
+            Optional<InvoiceEntity> dealInvoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(agreement.getDealId());
+            if (dealInvoice.isPresent()) {
+                log.warn("Cannot link invoice {}: deal {} already has an invoice ({})", invoiceId, agreement.getDealId(),
+                        dealInvoice.get().getPaypalInvoiceId());
+                return false;
+            }
+            InvoiceLifecycleStatus status = mapInvoiceStatus(invoiceNode.path("status").asText("DRAFT"));
+            String invoiceNumber = invoiceNode.path("detail").path("invoice_number").asText(null);
+            String viewUrl = viewUrlFor(invoiceId, invoiceNode);
+            InvoiceEntity entity = new InvoiceEntity(
+                    UUID.randomUUID(),
+                    agreement.getDealId(),
+                    agreement.getVersion(),
+                    status,
+                    invoiceId,
+                    invoiceNumber,
+                    viewUrl,
+                    amountMinor,
+                    currency.toUpperCase());
+            invoiceRepository.save(entity);
+            auditEventPort.recordEvent(agreement.getDealId(), "WEBHOOK_RECONCILED_INVOICE_CREATED",
+                    Map.of("paypalInvoiceId", invoiceId, "status", status.name(), "amountMinorUnits", amountMinor));
+            log.info("Linked existing PayPal invoice {} to deal {} (agreement v{})", invoiceId, agreement.getDealId(), agreement.getVersion());
+            return true;
+        } catch (Exception e) {
+            log.warn("Invoice-created webhook handling failed for {}: {}", invoiceId, e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean handleInvoiceSent(String invoiceId, JsonNode invoiceNode) {
+        Optional<InvoiceEntity> invoiceOpt = invoiceRepository.findByPaypalInvoiceId(invoiceId);
+        if (invoiceOpt.isEmpty()) {
+            log.info("Invoice-sent ignored: no local invoice for paypalInvoiceId={}", invoiceId);
+            return false;
+        }
+        InvoiceEntity invoice = invoiceOpt.get();
+        if (invoice.getLifecycleStatus() == InvoiceLifecycleStatus.SENT
+                || invoice.getLifecycleStatus() == InvoiceLifecycleStatus.PAID) {
+            return false;
+        }
+        invoice.setLifecycleStatus(InvoiceLifecycleStatus.SENT);
+        invoice.setPaypalInvoiceViewUrl(viewUrlFor(invoiceId, invoiceNode));
+        invoice.setUpdatedAt(Instant.now());
+        invoiceRepository.save(invoice);
+        auditEventPort.recordEvent(invoice.getDealId(), "WEBHOOK_RECONCILED_INVOICE_SENT",
+                Map.of("paypalInvoiceId", invoiceId));
+        return true;
+    }
+
+    private com.payagent.common.contracts.StructuredTermsDTO readTerms(String canonicalJson) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(canonicalJson, com.payagent.common.contracts.StructuredTermsDTO.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String extractTermsHash(String note) {
+        if (note == null) {
+            return null;
+        }
+        int idx = note.indexOf("termsHashSha256:");
+        if (idx < 0) {
+            return null;
+        }
+        String tail = note.substring(idx + "termsHashSha256:".length()).trim();
+        int separator = tail.indexOf(' ');
+        if (separator > 0) {
+            tail = tail.substring(0, separator);
+        }
+        if (tail.length() != 64) {
+            return null;
+        }
+        for (int i = 0; i < tail.length(); i++) {
+            char c = tail.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                return null;
+            }
+        }
+        return tail;
+    }
+
+    private static long parseAmountToMinorUnits(String decimalValue) {
+        try {
+            java.math.BigDecimal parsed = new java.math.BigDecimal(decimalValue);
+            return parsed.movePointRight(2).toBigIntegerExact().longValueExact();
+        } catch (Exception e) {
+            return -1L;
+        }
+    }
+
+    private static boolean equalsIgnoreCase(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.trim().equalsIgnoreCase(b.trim());
+    }
+
+    private static InvoiceLifecycleStatus mapInvoiceStatus(String status) {
+        if (status == null) {
+            return InvoiceLifecycleStatus.UNKNOWN;
+        }
+        return switch (status.toUpperCase()) {
+            case "DRAFT" -> InvoiceLifecycleStatus.DRAFT;
+            case "SENT", "SCHEDULED" -> InvoiceLifecycleStatus.SENT;
+            case "PAID", "MARKED_AS_PAID" -> InvoiceLifecycleStatus.PAID;
+            case "CANCELLED", "REFUNDED" -> InvoiceLifecycleStatus.CANCELLED;
+            default -> InvoiceLifecycleStatus.UNKNOWN;
+        };
+    }
+
+    private static String viewUrlFor(String invoiceId, JsonNode invoiceNode) {
+        if (invoiceNode != null) {
+            JsonNode links = invoiceNode.path("links");
+            if (links.isArray()) {
+                for (JsonNode link : links) {
+                    if ("payer-view".equalsIgnoreCase(link.path("rel").asText())) {
+                        return link.path("href").asText(null);
+                    }
+                }
+            }
+        }
+        return "https://www.sandbox.paypal.com/invoice/payerView/details/" + invoiceId;
     }
 
     private void auditConflict(UUID dealId, String eventType, String resourceId, Enum<?> currentState, Enum<?> incomingState) {

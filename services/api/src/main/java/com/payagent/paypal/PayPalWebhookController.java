@@ -81,6 +81,9 @@ public class PayPalWebhookController {
         String eventType = eventNode.hasNonNull("event_type") ? eventNode.get("event_type").asText() : "UNKNOWN";
         JsonNode resourceNode = eventNode.get("resource");
         String resourceId = resourceNode != null && resourceNode.hasNonNull("id") ? resourceNode.get("id").asText() : null;
+        if (eventType.startsWith("INVOICING.") && resourceNode != null && resourceNode.hasNonNull("invoice")) {
+            resourceId = resourceNode.path("invoice").path("id").asText(null);
+        }
 
         var result = reconciliationService.processWebhookEvent(eventId, eventType, resourceId, resourceNode, rawPayload);
 

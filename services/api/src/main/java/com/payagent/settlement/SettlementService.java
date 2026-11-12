@@ -5,6 +5,7 @@ import com.payagent.common.contracts.DealStatus;
 import com.payagent.common.contracts.InvoiceLifecycleStatus;
 import com.payagent.common.contracts.PaymentLifecycleStatus;
 import com.payagent.common.contracts.SettlementStateDTO;
+import com.payagent.common.contracts.StructuredTermsDTO;
 import com.payagent.paypal.PayPalInvoiceService;
 import com.payagent.paypal.PayPalOrderService;
 import com.payagent.paypal.model.AuthorizeOrderResult;
@@ -21,6 +22,9 @@ import com.payagent.settlement.persistence.PaymentEntity;
 import com.payagent.settlement.persistence.PaymentRepository;
 import com.payagent.settlement.port.AuditEventPort;
 import com.payagent.settlement.port.DealPort;
+import com.payagent.settlement.persistence.PayPalEventRepository;
+import com.payagent.settlement.persistence.PayPalEventEntity;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -43,6 +47,10 @@ public class SettlementService {
     private final DealPort dealPort;
     private final AuditEventPort auditEventPort;
     private final CaptureAttemptService captureAttemptService;
+    private final PayPalEventRepository payPalEventRepository;
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper INVOICE_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     // Concurrency guard to prevent double capture attempts on the same deal
     private final Map<UUID, Object> captureLocks = new ConcurrentHashMap<>();
@@ -53,7 +61,8 @@ public class SettlementService {
                              PaymentRepository paymentRepository,
                              DealPort dealPort,
                              AuditEventPort auditEventPort,
-                             CaptureAttemptService captureAttemptService) {
+                             CaptureAttemptService captureAttemptService,
+                             PayPalEventRepository payPalEventRepository) {
         this.invoiceService = invoiceService;
         this.orderService = orderService;
         this.invoiceRepository = invoiceRepository;
@@ -61,6 +70,7 @@ public class SettlementService {
         this.dealPort = dealPort;
         this.auditEventPort = auditEventPort;
         this.captureAttemptService = captureAttemptService;
+        this.payPalEventRepository = payPalEventRepository;
     }
 
     @Transactional
@@ -72,18 +82,81 @@ public class SettlementService {
             throw new SettlementConflictException("Cannot initiate settlement: deal " + dealId + " is in " + currentStatus + " status, required AGREED");
         }
 
+        AgreementSnapshotDTO agreedAgreement = dealPort.getAgreedAgreement(dealId);
         Optional<InvoiceEntity> existingInvoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
-        if (existingInvoice.isPresent()
+        if (existingInvoice.isEmpty()) {
+            Optional<InvoiceEntity> recovered = tryRecoverSandboxInvoice(dealId, agreedAgreement);
+            if (recovered.isPresent()) {
+                existingInvoice = recovered;
+            }
+        }
+        Optional<PaymentEntity> existingPayment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
+        boolean hasInvoice = existingInvoice.isPresent()
                 && existingInvoice.get().getPaypalInvoiceId() != null
-                && existingInvoice.get().getLifecycleStatus() != InvoiceLifecycleStatus.CANCELLED) {
-            Optional<PaymentEntity> existingPayment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
-            log.info("Settlement already initiated for deal {}. Returning existing state instead of creating duplicate invoices.", dealId);
-            return assembleStateDTO(
-                    dealId,
-                    existingInvoice.get().getAgreementVersion(),
-                    existingInvoice.get(),
-                    existingPayment.orElse(null)
+                && existingInvoice.get().getLifecycleStatus() != InvoiceLifecycleStatus.CANCELLED;
+        boolean hasPayment = existingPayment.isPresent() && existingPayment.get().getPaypalOrderId() != null;
+
+        if (hasInvoice) {
+            AgreementSnapshotDTO agreementForExisting = agreedAgreement;
+            String invSendRequestId = idempotencyKey != null ? idempotencyKey + "-send" : UUID.randomUUID().toString();
+            InvoiceEntity invoiceEntity = existingInvoice.get();
+            // The invoice exists in PayPal (possibly draft). Send it to the buyer if still a draft.
+            if (invoiceEntity.getLifecycleStatus() == InvoiceLifecycleStatus.DRAFT) {
+                invoiceService.sendInvoice(invoiceEntity.getPaypalInvoiceId(), invSendRequestId);
+                invoiceEntity.setLifecycleStatus(InvoiceLifecycleStatus.SENT);
+                invoiceEntity.setPaypalInvoiceViewUrl(invoiceEntity.getPaypalInvoiceViewUrl() != null ? invoiceEntity.getPaypalInvoiceViewUrl() : null);
+                invoiceEntity.setUpdatedAt(Instant.now());
+                invoiceRepository.save(invoiceEntity);
+                auditEventPort.recordEvent(dealId, "INVOICE_SENT", Map.of(
+                        "paypalInvoiceId", invoiceEntity.getPaypalInvoiceId(),
+                        "reused", true
+                ));
+                log.info("Sent existing DRAFT PayPal invoice {} for deal {}", invoiceEntity.getPaypalInvoiceId(), dealId);
+                existingInvoice = Optional.of(invoiceEntity);
+            }
+            if (hasPayment) {
+                log.info("Settlement already initiated for deal {}. Returning existing state instead of creating duplicates.", dealId);
+                return assembleStateDTO(
+                        dealId,
+                        existingInvoice.get().getAgreementVersion(),
+                        existingInvoice.get(),
+                        existingPayment.orElse(null)
+                );
+            }
+            // Invoice exists but order/payment is missing — proceed to create the Order rail only.
+            String invoiceId = existingInvoice.get().getPaypalInvoiceId();
+            String ordRequestId = idempotencyKey != null ? idempotencyKey + "-ord" : UUID.randomUUID().toString();
+            var canonical = agreementForExisting.canonicalTerms();
+            CreateOrderCommand orderCommand = new CreateOrderCommand(
+                    dealId.toString(),
+                    invoiceId,
+                    canonical.title(),
+                    canonical.priceMinorUnits(),
+                    canonical.currency()
             );
+            PayPalOrderResponse orderResponse = orderService.createOrder(orderCommand, ordRequestId);
+            PaymentEntity paymentEntity = existingPayment.orElseGet(() -> new PaymentEntity(
+                    UUID.randomUUID(),
+                    dealId,
+                    agreementForExisting.version(),
+                    PaymentLifecycleStatus.ORDER_CREATED,
+                    orderResponse.id(),
+                    null,
+                    null,
+                    null,
+                    canonical.priceMinorUnits(),
+                    canonical.currency()
+            ));
+            paymentEntity.setLifecycleStatus(PaymentLifecycleStatus.ORDER_CREATED);
+            paymentEntity.setPaypalOrderId(orderResponse.id());
+            paymentEntity.setUpdatedAt(Instant.now());
+            paymentRepository.save(paymentEntity);
+            auditEventPort.recordEvent(dealId, "PAYMENT_ORDER_CREATED", Map.of(
+                    "paypalOrderId", orderResponse.id(),
+                    "linkedInvoiceId", invoiceId
+            ));
+            dealPort.transitionDealStatus(dealId, DealStatus.SETTLEMENT_PENDING);
+            return assembleStateDTO(dealId, agreementForExisting.version(), existingInvoice.get(), paymentEntity);
         }
 
         AgreementSnapshotDTO agreement = dealPort.getAgreedAgreement(dealId);
@@ -473,5 +546,118 @@ public class SettlementService {
                 currency,
                 lastReconciledAt
         );
+    }
+
+    private Optional<InvoiceEntity> tryRecoverSandboxInvoice(UUID dealId, AgreementSnapshotDTO agreement) {
+        if (agreement == null || agreement.termsHashSha256() == null) {
+            return Optional.empty();
+        }
+        java.util.List<PayPalEventEntity> createdEvents =
+                payPalEventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED");
+        StructuredTermsDTO canonical = agreement.canonicalTerms();
+        String buyerEmail = dealPort.getBuyerEmail(dealId);
+        String sellerEmail = dealPort.getSellerEmail(dealId);
+        for (PayPalEventEntity event : createdEvents) {
+            try {
+                JsonNode root = INVOICE_MAPPER.readTree(event.getPayloadJson());
+                JsonNode invoiceNode = root.path("resource").path("invoice");
+                if (invoiceNode.isMissingNode() || !invoiceNode.isObject()) {
+                    continue;
+                }
+                String invoiceId = invoiceNode.path("id").asText(null);
+                if (invoiceId == null || invoiceId.isBlank()) {
+                    continue;
+                }
+                String note = invoiceNode.path("detail").path("note").asText(null);
+                String hash = extractTermsHash(note);
+                if (hash == null || !hash.equals(agreement.termsHashSha256())) {
+                    continue;
+                }
+                long amountMinor = parseAmountToMinorUnits(invoiceNode.path("amount").path("value").asText(null));
+                String currency = invoiceNode.path("amount").path("currency_code").asText(null);
+                if (amountMinor < 0 || currency == null
+                        || amountMinor != canonical.priceMinorUnits()
+                        || !currency.equalsIgnoreCase(canonical.currency())) {
+                    log.warn("Recovery rejected invoice {}: amount/currency mismatch for deal {}", invoiceId, dealId);
+                    continue;
+                }
+                String recipient = invoiceNode.path("primary_recipients").path(0).path("billing_info").path("email_address").asText(null);
+                String invoicer = invoiceNode.path("invoicer").path("email_address").asText(null);
+                if (!equalsIgnoreCase(recipient, buyerEmail) || (sellerEmail != null && !equalsIgnoreCase(invoicer, sellerEmail))) {
+                    log.warn("Recovery rejected invoice {}: email mismatch for deal {}", invoiceId, dealId);
+                    continue;
+                }
+                int agreementVersion = agreement.version();
+                String status = invoiceNode.path("status").asText("DRAFT");
+                InvoiceLifecycleStatus mappedStatus = switch (status.toUpperCase()) {
+                    case "DRAFT" -> InvoiceLifecycleStatus.DRAFT;
+                    case "SENT", "SCHEDULED" -> InvoiceLifecycleStatus.SENT;
+                    case "PAID", "MARKED_AS_PAID" -> InvoiceLifecycleStatus.PAID;
+                    case "CANCELLED", "REFUNDED" -> InvoiceLifecycleStatus.CANCELLED;
+                    default -> InvoiceLifecycleStatus.UNKNOWN;
+                };
+                String invoiceNumber = invoiceNode.path("detail").path("invoice_number").asText(null);
+                String viewUrl = "https://www.sandbox.paypal.com/invoice/payerView/details/" + invoiceId;
+                InvoiceEntity recovered = new InvoiceEntity(
+                        UUID.randomUUID(),
+                        dealId,
+                        agreementVersion,
+                        mappedStatus,
+                        invoiceId,
+                        invoiceNumber,
+                        viewUrl,
+                        amountMinor,
+                        currency.toUpperCase());
+                invoiceRepository.save(recovered);
+                auditEventPort.recordEvent(dealId, "INVOICE_RECOVERED",
+                        Map.of("paypalInvoiceId", invoiceId, "status", mappedStatus.name(), "amountMinorUnits", amountMinor));
+                log.info("Recovered existing Sandbox invoice {} into deal {} (agreement v{})", invoiceId, dealId, agreementVersion);
+                return Optional.of(recovered);
+            } catch (Exception e) {
+                log.warn("Could not recover existing invoice from stored webhook event: {}", e.getMessage());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String extractTermsHash(String note) {
+        if (note == null) {
+            return null;
+        }
+        int idx = note.indexOf("termsHashSha256:");
+        if (idx < 0) {
+            return null;
+        }
+        String tail = note.substring(idx + "termsHashSha256:".length()).trim();
+        int separator = tail.indexOf(' ');
+        if (separator > 0) {
+            tail = tail.substring(0, separator);
+        }
+        if (tail.length() != 64) {
+            return null;
+        }
+        for (int i = 0; i < tail.length(); i++) {
+            char c = tail.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                return null;
+            }
+        }
+        return tail;
+    }
+
+    private static long parseAmountToMinorUnits(String decimalValue) {
+        try {
+            java.math.BigDecimal parsed = new java.math.BigDecimal(decimalValue);
+            return parsed.movePointRight(2).toBigIntegerExact().longValueExact();
+        } catch (Exception e) {
+            return -1L;
+        }
+    }
+
+    private static boolean equalsIgnoreCase(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.trim().equalsIgnoreCase(b.trim());
     }
 }
