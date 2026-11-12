@@ -18,6 +18,10 @@
 
 </div>
 
+![Silent Payagent simulation showing the original $980.00 agreement, the $980.01 revision, and approval by both parties.](docs/member-f/readme-media/agreement-loop.gif)
+
+<sub>Seven-second loop from the Northline Coffee simulation.</sub>
+
 ---
 
 ## 📋 Table of Contents
@@ -88,6 +92,8 @@ The Northline screenshots show the agreement stage. Here’s how that stage fits
 | **Review** | Buyer acceptance requests capture of the authorization. Opening a dispute blocks automated capture. |
 
 ### From agreement to settlement
+
+![The approved agreement leads to a PayPal Sandbox invoice with its terms hash and a separate payment authorization. Capture follows delivery acceptance, and a dispute blocks automated capture.](docs/member-f/readme-media/paypal-settlement.jpg)
 
 ```mermaid
 sequenceDiagram
