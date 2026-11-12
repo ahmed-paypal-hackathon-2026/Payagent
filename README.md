@@ -149,6 +149,8 @@ The team used the PayPal AI Toolkit for development guidance. At runtime, the ba
 
 ### Design decisions
 
+![Agreement version 1 at $980.00 and version 2 at $980.01 have different terms hashes. Both parties must approve version 2.](docs/member-f/readme-media/agreement-fingerprint.jpg)
+
 - **Bounded negotiation.** Price is stored in integer minor units. The backend applies hard limits before scoring an offer with `BigDecimal`. Price, delivery time, and included revisions carry weights of 60%, 25%, and 15% respectively. [Utility calculator](services/api/src/main/java/com/payagent/mandates/UtilityCalculator.java)
 - **Approval tied to the terms.** Payagent canonicalizes the agreement JSON before hashing it. Consistent serialization lets both parties approve the same terms regardless of JSON key order. [Agreement service](services/api/src/main/java/com/payagent/agreements/AgreementService.java)
 - **Separate invoice and payment records.** The invoice records the work and terms hash. The linked order supports authorization after buyer approval, with capture requested after delivery is accepted. [PayPal integration](docs/PAYPAL_INTEGRATION.md)
