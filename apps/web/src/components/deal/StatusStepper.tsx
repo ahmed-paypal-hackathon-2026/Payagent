@@ -1,63 +1,36 @@
 import type { DealStatus } from "@/types/contracts";
 import { cn } from "@/lib/format";
 
-const steps = [
-  { id: "negotiation", label: "Negotiate", statuses: ["DRAFT", "INVITED", "ACTIVE_NEGOTIATION"] },
-  { id: "terms", label: "Terms", statuses: ["TERMS_PENDING_ACCEPTANCE"] },
-  { id: "agreed", label: "Agreed", statuses: ["AGREED"] },
-  { id: "settlement", label: "Settlement", statuses: ["SETTLEMENT_PENDING", "IN_PROGRESS"] },
-  { id: "delivery", label: "Deliverables", statuses: ["DELIVERABLES_SUBMITTED", "ACCEPTED"] },
-  { id: "closed", label: "Closed", statuses: ["CLOSED"] },
-] as const;
-
-function activeStepIndex(status: DealStatus): number {
-  if (status === "DISPUTED" || status === "CANCELLED") return -1;
-  const index = steps.findIndex((step) => (step.statuses as readonly string[]).includes(status));
-  return index < 0 ? 0 : index;
-}
+const stages = [
+  { label: "Negotiate", statuses: ["DRAFT", "INVITED", "ACTIVE_NEGOTIATION"] },
+  { label: "Agree", statuses: ["TERMS_PENDING_ACCEPTANCE"] },
+  { label: "Authorize", statuses: ["AGREED", "SETTLEMENT_PENDING"] },
+  { label: "Deliver", statuses: ["IN_PROGRESS", "DELIVERABLES_SUBMITTED", "ACCEPTED", "CLOSED"] },
+];
 
 export function StatusStepper({ status }: { status: DealStatus }) {
-  const active = activeStepIndex(status);
-  const special = status === "DISPUTED" || status === "CANCELLED";
+  const active = stages.findIndex(({ statuses }) => statuses.includes(status));
 
   return (
-    <ol className="flex w-full items-center gap-1 overflow-x-auto pb-1" aria-label="Deal progress">
-      {steps.map((step, index) => {
-        const complete = !special && active > index;
-        const current = !special && active === index;
+    <ol className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4" aria-label="Deal progress">
+      {stages.map(({ label }, index) => {
+        const complete = active > index || status === "CLOSED";
+        const current = active === index && !complete;
         return (
-          <li key={step.id} className="flex min-w-0 flex-1 items-center gap-1">
-            <div
+          <li key={label} className="flex min-w-0 items-center gap-2" aria-current={current ? "step" : undefined}>
+            <span
+              aria-hidden="true"
               className={cn(
-                "flex min-w-[4.5rem] flex-1 flex-col gap-1 rounded-lg px-2 py-1.5 text-center",
-                current && "bg-emerald-50",
-                special && "opacity-60",
+                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs",
+                complete ? "border-emerald-200 bg-emerald-100 text-emerald-900" :
+                  current ? "border-indigo-700 bg-indigo-700 text-white" : "border-slate-300 text-slate-600",
               )}
-              aria-current={current ? "step" : undefined}
             >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "mx-auto flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold",
-                  complete && "border-emerald-700 bg-emerald-700 text-white",
-                  current && "border-emerald-700 bg-white text-emerald-800",
-                  !complete && !current && "border-slate-300 bg-white text-slate-400",
-                )}
-              >
-                {complete ? "✓" : index + 1}
-              </span>
-              <span
-                className={cn(
-                  "truncate text-[11px] font-semibold",
-                  current ? "text-emerald-800" : complete ? "text-slate-700" : "text-slate-400",
-                )}
-              >
-                {step.label}
-              </span>
-            </div>
-            {index < steps.length - 1 ? (
-              <span aria-hidden="true" className={cn("h-px w-2 shrink-0", complete ? "bg-emerald-600" : "bg-slate-300")} />
-            ) : null}
+              {complete ? "✓" : index + 1}
+            </span>
+            <span className={cn("text-xs sm:text-sm", current ? "font-bold text-indigo-950" : "font-medium text-slate-700")}>
+              {label}{complete ? <span className="sr-only"> completed</span> : null}
+            </span>
           </li>
         );
       })}

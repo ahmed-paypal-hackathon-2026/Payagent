@@ -417,6 +417,7 @@ export function proposeAgreement(
   if (!termsHashSha256 || termsHashSha256.length < 32) fail("A demo terms hash could not be created.");
 
   if (deal.currentAgreement) {
+    deal.previousAgreementTerms = deal.currentAgreement.canonicalTerms;
     deal.currentAgreement.buyerAcceptedAt = null;
     deal.currentAgreement.sellerAcceptedAt = null;
   }

@@ -12,14 +12,14 @@ export const MOCK_USERS: DemoUser[] = [
   {
     id: "user-demo-buyer",
     email: "buyer.demo@example.test",
-    displayName: "Demo Buyer",
-    roleLabel: "Commissioning client",
+    displayName: "Northline Coffee",
+    roleLabel: "Buyer",
   },
   {
     id: "user-demo-seller",
     email: "seller.demo@example.test",
-    displayName: "Demo Seller",
-    roleLabel: "Freelance studio",
+    displayName: "Fieldwork Digital",
+    roleLabel: "Seller",
   },
 ];
 
@@ -30,18 +30,18 @@ export function demoUserById(userId: string): DemoUser | null {
 }
 
 const LANDING_TERMS: StructuredTermsDTO = {
-  title: "Landing page redesign for Payagent demo",
+  title: "Northline Coffee · Launch landing page",
   deliverables: [
-    "Responsive landing page (Next.js)",
-    "Brand-aligned Tailwind design system",
-    "Contact form with validation",
+    "Responsive landing page",
+    "Editable design files",
+    "Enquiry form",
   ],
   priceMinorUnits: 90000,
   currency: "USD",
   deliveryDays: 14,
   includedRevisions: 2,
   acceptanceCriteriaText:
-    "Page matches approved wireframe; Lighthouse performance score >= 85 on mobile.",
+    "The page follows the approved design on mobile and desktop. Test enquiries reach the client’s inbox.",
 };
 
 const AGREED_TERMS: StructuredTermsDTO = {
@@ -65,7 +65,7 @@ const BUYER_MANDATE: MandateDTO = {
   targetDeliveryDays: 14,
   limitRevisions: 3,
   targetRevisions: 2,
-  mustHaveDeliverables: ["Responsive landing page", "Contact form"],
+  mustHaveDeliverables: ["Responsive landing page", "Enquiry form"],
   forbiddenTerms: ["Full brand rebrand"],
   mode: "ASSISTED",
   maxRounds: 5,

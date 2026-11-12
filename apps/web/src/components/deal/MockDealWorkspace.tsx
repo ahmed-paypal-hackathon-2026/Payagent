@@ -9,14 +9,13 @@ import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
-import { CopyButton } from "@/components/ui/CopyButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AgreementPanel } from "./AgreementPanel";
 import { AuditPanel, type AuditPanelEvent } from "./AuditPanel";
 import { DeliverablesPanel } from "./DeliverablesPanel";
 import { NegotiationPanel } from "./NegotiationPanel";
 import { SettlementPanel } from "./SettlementPanel";
-import { DealStatusBadge, DisputeStatusBadge, stopReasonLabel } from "./StatusBadges";
+import { DealStatusBadge, DisputeStatusBadge } from "./StatusBadges";
 import { StatusStepper } from "./StatusStepper";
 
 type TabKey = "negotiation" | "agreement" | "settlement" | "deliverables" | "audit";
@@ -42,7 +41,7 @@ function nextAction(workspace: DealWorkspaceDTO): { title: string; body: string;
   if (workspace.status === "DISPUTED") {
     return {
       title: "Capture is frozen by dispute",
-      body: "The dispute state blocks automated capture and acceptance. Review the evidence and the audit trail; resolution is backend-owned.",
+      body: "Review the submitted evidence and activity while payment capture is paused.",
       tab: "deliverables",
     };
   }
@@ -78,12 +77,12 @@ function nextAction(workspace: DealWorkspaceDTO): { title: string; body: string;
     return workspace.myRole === "BUYER"
       ? {
           title: "Initiate sandbox settlement",
-          body: "Create the commercial invoice and authorization order through the backend.",
+          body: "Create the invoice and prepare the payment authorization.",
           tab: "settlement",
         }
       : {
           title: "Waiting for the buyer",
-          body: "The buyer initiates the invoice and authorization hold through PayPal Sandbox.",
+          body: "The buyer will start the invoice and payment authorization.",
           tab: "settlement",
         };
   }
@@ -181,31 +180,17 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
 
   const action = nextAction(workspace);
   const title = workspace.currentAgreement?.canonicalTerms.title ?? workspace.offers[workspace.offers.length - 1]?.terms.title ?? deal.terms.title;
-  const counterpartyEmail = workspace.myRole === "BUYER" ? workspace.sellerEmail : workspace.buyerEmail;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href="/" className="text-xs font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-900">
-              ← Dashboard
-            </Link>
-            <Badge tone="accent">{workspace.myRole === "BUYER" ? "Buyer view" : "Seller view"}</Badge>
+          <h1 className="font-serif text-4xl italic leading-tight tracking-tight text-indigo-950 sm:text-5xl">{title || "Untitled deal"}</h1>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <span className="text-sm text-slate-700">{workspace.myRole === "BUYER" ? "Buyer view" : "Seller view"}</span>
             <DealStatusBadge status={workspace.status} />
             {workspace.disputeStatus !== "NONE" ? <DisputeStatusBadge status={workspace.disputeStatus} /> : null}
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{title || "Untitled deal"}</h1>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-            <span className="font-mono">{workspace.dealId}</span>
-            <span>·</span>
-            <span>Counterparty: {counterpartyEmail ?? "not joined"}</span>
-            <span>·</span>
-            <span>{stopReasonLabel(workspace.stopReason)}</span>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <CopyButton value={workspace.dealId} label="Copy deal ID" />
         </div>
       </div>
 
@@ -217,9 +202,9 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
 
       {workspace.status === "DISPUTED" ? (
         <Alert tone="error" title="Dispute freeze is active">
-          Automated capture and acceptance actions are blocked by the server state. This view never offers an override.
+          Payment capture and delivery acceptance are paused while the dispute is open.
         </Alert>
-      ) : (
+      ) : tab !== "agreement" ? (
         <Alert
           tone="info"
           title={action.title}
@@ -231,7 +216,7 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
         >
           {action.body}
         </Alert>
-      )}
+      ) : null}
 
       <div className="overflow-x-auto border-b border-slate-200">
         <div role="tablist" aria-label="Deal workspace sections" className="flex min-w-max items-center gap-1">
@@ -253,9 +238,9 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
                 aria-controls={`panel-${item.key}`}
                 onClick={() => setTab(item.key)}
                 className={cn(
-                  "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700",
+                  "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700",
                   selected
-                    ? "border-emerald-700 text-emerald-800"
+                    ? "border-indigo-700 text-indigo-900"
                     : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800",
                 )}
               >
@@ -278,7 +263,7 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
           <NegotiationPanel workspace={workspace} onOpenAgreement={() => setTab("agreement")} />
         ) : null}
         {tab === "agreement" ? (
-          <AgreementPanel workspace={workspace} onOpenSettlement={() => setTab("settlement")} />
+          <AgreementPanel workspace={workspace} previousTerms={deal.previousAgreementTerms} onOpenSettlement={() => setTab("settlement")} />
         ) : null}
         {tab === "settlement" ? (
           <SettlementPanel workspace={workspace} onOpenDeliverables={() => setTab("deliverables")} />
@@ -289,10 +274,6 @@ export function MockDealWorkspace({ dealId }: { dealId: string }) {
         {tab === "audit" ? <AuditPanel events={mockAuditEvents} mode="mock" /> : null}
       </div>
 
-      <p className="text-xs leading-relaxed text-slate-500">
-        You are viewing the {workspace.myRole.toLowerCase()} side of the deal. Only your mandate is present in this
-        workspace payload; private counterparty boundaries are never rendered.
-      </p>
     </div>
   );
 }
