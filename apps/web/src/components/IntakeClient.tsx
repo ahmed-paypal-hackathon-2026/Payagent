@@ -165,7 +165,7 @@ export function IntakeClient() {
                   </div>
                   <Link
                     href={`/deals/${encodeURIComponent(result.dealId)}`}
-                    className="mt-3 inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+                    className="mt-3 inline-flex min-h-10 items-center rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700"
                   >
                     Open deal workspace
                   </Link>

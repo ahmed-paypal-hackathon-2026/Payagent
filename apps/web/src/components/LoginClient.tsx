@@ -12,7 +12,7 @@ import { Field, Input } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 
 export function LoginClient() {
-  const { mode, apiBaseUrl, liveSession, login, register, logout } = useSession();
+  const { mode, liveSession, login, register, logout } = useSession();
   const { users, currentUser, setCurrentUserId } = useMockData();
   const router = useRouter();
   const [tab, setTab] = useState<"login" | "register">("login");
@@ -84,12 +84,11 @@ export function LoginClient() {
   return (
     <>
       <PageHeader
-        eyebrow="Live session"
-        title={liveSession ? "You are signed in" : "Sign in to the Payagent API"}
+        title={liveSession ? "You are signed in" : "Sign in to Payagent"}
         description={
           liveSession
-            ? "The JWT is kept in session storage for this tab. Sign out to clear it."
-            : `Authentication goes only to ${apiBaseUrl}. No credentials are stored in the repository or sent anywhere else.`
+            ? "Open your dashboard to return to your deals."
+            : "Access your deals and review agreements in your workspace."
         }
       />
 
@@ -102,7 +101,7 @@ export function LoginClient() {
             <div className="flex flex-wrap gap-2">
               <Link
                 href="/"
-                className="inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                className="inline-flex min-h-10 items-center rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800"
               >
                 Open dashboard
               </Link>
@@ -116,7 +115,6 @@ export function LoginClient() {
         <Card className="max-w-xl">
           <CardHeader
             title={tab === "login" ? "Sign in" : "Create an account"}
-            description="Use the credentials configured in your local backend database."
             action={
               <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5" role="tablist" aria-label="Authentication mode">
                 {(["login", "register"] as const).map((item) => (
@@ -149,13 +147,13 @@ export function LoginClient() {
                   autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="you@example.test"
+                  placeholder="you@example.com"
                 />
               </Field>
               <Field
                 label="Password"
                 htmlFor="auth-password"
-                hint="At least 8 characters. Never written to the UI state beyond this form."
+                hint="At least 8 characters."
                 required
               >
                 <Input
@@ -170,10 +168,6 @@ export function LoginClient() {
                 {tab === "login" ? "Sign in" : "Create account"}
               </Button>
             </form>
-            <p className="mt-4 text-xs leading-relaxed text-slate-500">
-              If the request cannot reach the API, confirm the backend is running at {apiBaseUrl} and that its CORS policy
-              allows this browser origin. CORS configuration is owned by the backend members.
-            </p>
           </CardBody>
         </Card>
       )}

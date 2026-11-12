@@ -96,7 +96,7 @@ export function JoinDealClient() {
           action={
             <Link
               href={`/deals/${encodeURIComponent(joinedDealId)}`}
-              className="whitespace-nowrap rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
+              className="whitespace-nowrap rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-800"
             >
               Open workspace
             </Link>
