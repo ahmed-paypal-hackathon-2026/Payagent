@@ -356,6 +356,51 @@ public class SettlementReconciliationService {
         return Optional.ofNullable(latest);
     }
 
+    /**
+     * Distinct paypal invoice ids among the stored, previously signature-verified
+     * INVOICING.INVOICE.CREATED events that match the given terms hash and canonical amount/currency
+     * and are in a linkable DRAFT/SENT state. Used to refuse ambiguous auto-links.
+     */
+    private java.util.List<String> collectMatchingCreatedInvoiceIds(String termsHash,
+            com.payagent.common.contracts.StructuredTermsDTO canonicalTerms) {
+        java.util.List<PayPalEventEntity> createdEvents =
+                payPalEventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED");
+        java.util.Set<String> distinct = new java.util.LinkedHashSet<>();
+        for (PayPalEventEntity event : createdEvents) {
+            try {
+                JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(event.getPayloadJson());
+                JsonNode invoiceNode = root.path("resource").path("invoice");
+                if (invoiceNode.isMissingNode() || !invoiceNode.isObject()) {
+                    continue;
+                }
+                String invoiceId = invoiceNode.path("id").asText(null);
+                if (invoiceId == null || invoiceId.isBlank()) {
+                    continue;
+                }
+                String hash = extractTermsHash(invoiceNode.path("detail").path("note").asText(null));
+                if (hash == null || !hash.equals(termsHash)) {
+                    continue;
+                }
+                long amountMinor = parseAmountToMinorUnits(invoiceNode.path("amount").path("value").asText(null));
+                String currency = invoiceNode.path("amount").path("currency_code").asText(null);
+                if (amountMinor < 0 || currency == null
+                        || amountMinor != canonicalTerms.priceMinorUnits()
+                        || !currency.equalsIgnoreCase(canonicalTerms.currency())) {
+                    continue;
+                }
+                String status = invoiceNode.path("status").asText("DRAFT");
+                String normalized = status.toUpperCase();
+                if (!"DRAFT".equals(normalized) && !"SENT".equals(normalized) && !"SCHEDULED".equals(normalized)) {
+                    continue;
+                }
+                distinct.add(invoiceId);
+            } catch (Exception e) {
+                log.warn("Could not evaluate stored invoice-created event {} as a candidate: {}", event.getEventId(), e.getMessage());
+            }
+        }
+        return new java.util.ArrayList<>(distinct);
+    }
+
     private Optional<PaymentEntity> resolvePayment(JsonNode node, String captureId) {
         String authId = relatedId(node, "authorization_id", "parent_payment");
         if (authId != null) {
@@ -471,13 +516,26 @@ public class SettlementReconciliationService {
                 log.warn("Invoice-created webhook ignored: amount/currency mismatch for terms hash {}", termsHash);
                 return false;
             }
+            // R1 ambiguity guard: never auto-link one arbitrary invoice when multiple stored, previously
+            // signature-verified INVOICING.INVOICE.CREATED events match the same agreement content with
+            // distinct invoice ids. The seller must choose via POST /settlement/link-invoice.
+            java.util.List<String> candidateIds = collectMatchingCreatedInvoiceIds(termsHash, canonicalTerms);
+            if (candidateIds.size() > 1) {
+                log.warn("Invoice-created webhook refused: {} distinct candidate invoices match terms hash {} — refusing to auto-link; candidates: {}",
+                        candidateIds.size(), termsHash, String.join(", ", candidateIds));
+                auditEventPort.recordEvent(agreement.getDealId(), "INVOICE_LINK_AMBIGUOUS",
+                        Map.of("candidateInvoiceIds", String.join(",", candidateIds), "count", candidateIds.size()));
+                return false;
+            }
+            // Sandbox PayPal identities (invoicer/recipient) are not application users; requiring an
+            // email match would reject every correct sandbox invoice. Hash + amount + currency + the
+            // unique-deal rule above are the binding checks. Emails are logged for diagnostics only.
             String buyerEmail = dealPort.getBuyerEmail(agreement.getDealId());
             String sellerEmail = dealPort.getSellerEmail(agreement.getDealId());
             String recipient = invoiceNode.path("primary_recipients").path(0).path("billing_info").path("email_address").asText(null);
             String invoicer = invoiceNode.path("invoicer").path("email_address").asText(null);
             if (!equalsIgnoreCase(recipient, buyerEmail) || !equalsIgnoreCase(invoicer, sellerEmail)) {
-                log.warn("Invoice-created webhook ignored: buyer/seller email mismatch (terms hash {})", termsHash);
-                return false;
+                log.info("Invoice-created: sandbox emails differ from app party emails (recipient-match={} invoicer-match={}) for terms hash {} — accepted as non-blocking", equalsIgnoreCase(recipient, buyerEmail), equalsIgnoreCase(invoicer, sellerEmail), termsHash);
             }
             Optional<InvoiceEntity> dealInvoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(agreement.getDealId());
             if (dealInvoice.isPresent()) {

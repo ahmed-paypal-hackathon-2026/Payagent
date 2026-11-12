@@ -12,6 +12,8 @@ public interface DealPort {
 
     void assertBuyer(UUID dealId, String callerEmail);
 
+    void assertSeller(UUID dealId, String callerEmail);
+
     void assertParty(UUID dealId, String callerEmail);
 
     void transitionDealStatus(UUID dealId, DealStatus targetStatus);

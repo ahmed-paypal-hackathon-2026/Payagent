@@ -548,15 +548,20 @@ public class SettlementService {
         );
     }
 
-    private Optional<InvoiceEntity> tryRecoverSandboxInvoice(UUID dealId, AgreementSnapshotDTO agreement) {
-        if (agreement == null || agreement.termsHashSha256() == null) {
-            return Optional.empty();
-        }
+    /**
+     * Collects the distinct set of PayPal invoices that are valid candidates for this agreement,
+     * based on the previously signature-verified INVOICING.INVOICE.CREATED webhook events stored in
+     * paypal_events. The binding checks are the terms hash committed inside the invoice note plus the
+     * exact canonical amount/currency. Sandbox PayPal identities are NEVER mapped to application users,
+     * so email equality is not used for matching (it would reject every correct sandbox invoice).
+     * Only DRAFT/SENT invoices are candidates; PAID/CANCELLED are excluded. One candidate per invoice id;
+     * if any candidate fails to parse it is skipped, never fatal.
+     */
+    private java.util.List<InvoiceEntity> collectSandboxInvoiceCandidates(UUID dealId, AgreementSnapshotDTO agreement) {
         java.util.List<PayPalEventEntity> createdEvents =
                 payPalEventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED");
         StructuredTermsDTO canonical = agreement.canonicalTerms();
-        String buyerEmail = dealPort.getBuyerEmail(dealId);
-        String sellerEmail = dealPort.getSellerEmail(dealId);
+        java.util.Map<String, InvoiceEntity> distinct = new java.util.LinkedHashMap<>();
         for (PayPalEventEntity event : createdEvents) {
             try {
                 JsonNode root = INVOICE_MAPPER.readTree(event.getPayloadJson());
@@ -581,24 +586,20 @@ public class SettlementService {
                     log.warn("Recovery rejected invoice {}: amount/currency mismatch for deal {}", invoiceId, dealId);
                     continue;
                 }
-                String recipient = invoiceNode.path("primary_recipients").path(0).path("billing_info").path("email_address").asText(null);
-                String invoicer = invoiceNode.path("invoicer").path("email_address").asText(null);
-                if (!equalsIgnoreCase(recipient, buyerEmail) || (sellerEmail != null && !equalsIgnoreCase(invoicer, sellerEmail))) {
-                    log.warn("Recovery rejected invoice {}: email mismatch for deal {}", invoiceId, dealId);
-                    continue;
-                }
-                int agreementVersion = agreement.version();
                 String status = invoiceNode.path("status").asText("DRAFT");
                 InvoiceLifecycleStatus mappedStatus = switch (status.toUpperCase()) {
                     case "DRAFT" -> InvoiceLifecycleStatus.DRAFT;
                     case "SENT", "SCHEDULED" -> InvoiceLifecycleStatus.SENT;
-                    case "PAID", "MARKED_AS_PAID" -> InvoiceLifecycleStatus.PAID;
-                    case "CANCELLED", "REFUNDED" -> InvoiceLifecycleStatus.CANCELLED;
-                    default -> InvoiceLifecycleStatus.UNKNOWN;
+                    default -> null;
                 };
+                if (mappedStatus == null) {
+                    log.info("Recovery skipped invoice {}: status {} is not a linkable DRAFT/SENT state", invoiceId, status);
+                    continue;
+                }
+                int agreementVersion = agreement.version();
                 String invoiceNumber = invoiceNode.path("detail").path("invoice_number").asText(null);
                 String viewUrl = "https://www.sandbox.paypal.com/invoice/payerView/details/" + invoiceId;
-                InvoiceEntity recovered = new InvoiceEntity(
+                distinct.putIfAbsent(invoiceId, new InvoiceEntity(
                         UUID.randomUUID(),
                         dealId,
                         agreementVersion,
@@ -607,17 +608,92 @@ public class SettlementService {
                         invoiceNumber,
                         viewUrl,
                         amountMinor,
-                        currency.toUpperCase());
-                invoiceRepository.save(recovered);
-                auditEventPort.recordEvent(dealId, "INVOICE_RECOVERED",
-                        Map.of("paypalInvoiceId", invoiceId, "status", mappedStatus.name(), "amountMinorUnits", amountMinor));
-                log.info("Recovered existing Sandbox invoice {} into deal {} (agreement v{})", invoiceId, dealId, agreementVersion);
-                return Optional.of(recovered);
+                        currency.toUpperCase()));
             } catch (Exception e) {
-                log.warn("Could not recover existing invoice from stored webhook event: {}", e.getMessage());
+                log.warn("Could not evaluate stored invoice-created event as a recovery candidate: {}", e.getMessage());
             }
         }
-        return Optional.empty();
+        return new java.util.ArrayList<>(distinct.values());
+    }
+
+    private Optional<InvoiceEntity> tryRecoverSandboxInvoice(UUID dealId, AgreementSnapshotDTO agreement) {
+        if (agreement == null || agreement.termsHashSha256() == null) {
+            return Optional.empty();
+        }
+        java.util.List<InvoiceEntity> candidates = collectSandboxInvoiceCandidates(dealId, agreement);
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+        if (candidates.size() > 1) {
+            java.util.List<String> ids = candidates.stream().map(InvoiceEntity::getPaypalInvoiceId).toList();
+            auditEventPort.recordEvent(dealId, "INVOICE_LINK_AMBIGUOUS",
+                    Map.of("candidateInvoiceIds", String.join(",", ids), "count", ids.size()));
+            throw new SettlementConflictException(
+                    "Multiple existing PayPal invoices match this agreement; link exactly one via "
+                            + "POST /api/v1/deals/" + dealId + "/settlement/link-invoice with paypalInvoiceId — candidates: "
+                            + String.join(", ", ids));
+        }
+        InvoiceEntity recovered = candidates.get(0);
+        invoiceRepository.save(recovered);
+        auditEventPort.recordEvent(dealId, "INVOICE_RECOVERED",
+                Map.of("paypalInvoiceId", recovered.getPaypalInvoiceId(), "status", recovered.getLifecycleStatus().name(), "amountMinorUnits", recovered.getAmountMinor()));
+        log.info("Recovered existing Sandbox invoice {} into deal {} (agreement v{})", recovered.getPaypalInvoiceId(), dealId, recovered.getAgreementVersion());
+        return Optional.of(recovered);
+    }
+
+    /**
+     * Seller-scoped, idempotent, explicit link of ONE previously signature-verified PayPal invoice (from the
+     * stored INVOICING.INVOICE.CREATED webhook events) onto this deal. Calls no external PayPal API; creates,
+     * sends, voids and modifies nothing. Validation re-derives candidacy from the stored event, so an arbitrary
+     * invoice id cannot be attached to the deal.
+     */
+    @Transactional
+    public SettlementStateDTO linkExistingInvoiceExplicitly(UUID dealId, String paypalInvoiceId, String callerEmail) {
+        dealPort.assertSeller(dealId, callerEmail);
+        if (paypalInvoiceId == null || paypalInvoiceId.isBlank()) {
+            throw new SettlementConflictException("paypalInvoiceId is required");
+        }
+        String requested = paypalInvoiceId.trim();
+
+        DealStatus currentStatus = dealPort.getDealStatus(dealId);
+        if (currentStatus != DealStatus.AGREED && currentStatus != DealStatus.SETTLEMENT_PENDING) {
+            throw new SettlementConflictException("Cannot link invoice: deal " + dealId + " is in " + currentStatus
+                    + " status, required AGREED or SETTLEMENT_PENDING");
+        }
+
+        Optional<InvoiceEntity> existing = invoiceRepository.findByPaypalInvoiceId(requested);
+        if (existing.isPresent()) {
+            if (!existing.get().getDealId().equals(dealId)) {
+                throw new SettlementConflictException("Invoice " + requested + " is already linked to a different deal");
+            }
+            log.info("Invoice {} is already linked to deal {} — returning existing state", requested, dealId);
+            Optional<PaymentEntity> existingPayment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
+            return assembleStateDTO(dealId, existing.get().getAgreementVersion(), existing.get(), existingPayment.orElse(null));
+        }
+
+        Optional<InvoiceEntity> dealInvoice = invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
+        if (dealInvoice.isPresent()) {
+            throw new SettlementConflictException("Deal already has invoice " + dealInvoice.get().getPaypalInvoiceId());
+        }
+
+        AgreementSnapshotDTO agreedAgreement = dealPort.getAgreedAgreement(dealId);
+        java.util.List<InvoiceEntity> candidates = collectSandboxInvoiceCandidates(dealId, agreedAgreement);
+        Optional<InvoiceEntity> match = candidates.stream()
+                .filter(candidate -> requested.equals(candidate.getPaypalInvoiceId()))
+                .findFirst();
+        if (match.isEmpty()) {
+            throw new SettlementConflictException("Invoice " + requested + " is not a verified stored candidate for deal "
+                    + dealId + " (must match the agreed terms hash and canonical amount/currency, and be DRAFT/SENT)");
+        }
+
+        InvoiceEntity linked = match.get();
+        invoiceRepository.save(linked);
+        auditEventPort.recordEvent(dealId, "INVOICE_LINK_EXPLICIT",
+                Map.of("paypalInvoiceId", linked.getPaypalInvoiceId(), "status", linked.getLifecycleStatus().name(),
+                        "amountMinorUnits", linked.getAmountMinor()));
+        log.info("Explicitly linked PayPal invoice {} to deal {} (agreement v{})", linked.getPaypalInvoiceId(), dealId, linked.getAgreementVersion());
+        Optional<PaymentEntity> payment = paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId);
+        return assembleStateDTO(dealId, linked.getAgreementVersion(), linked, payment.orElse(null));
     }
 
     private static String extractTermsHash(String note) {
@@ -652,12 +728,5 @@ public class SettlementService {
         } catch (Exception e) {
             return -1L;
         }
-    }
-
-    private static boolean equalsIgnoreCase(String a, String b) {
-        if (a == null || b == null) {
-            return false;
-        }
-        return a.trim().equalsIgnoreCase(b.trim());
     }
 }

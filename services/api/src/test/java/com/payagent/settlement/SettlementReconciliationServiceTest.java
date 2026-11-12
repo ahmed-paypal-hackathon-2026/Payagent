@@ -128,6 +128,66 @@ class SettlementReconciliationServiceTest {
     }
 
     @Test
+    void invoiceCreatedWithSandboxEmailMismatchStillLinks() throws Exception {
+        // Sandbox PayPal identities are never mapped to application users; the email equality
+        // check must NOT gate linking when hash + amount + currency + unique-deal all pass.
+        UUID dealId = UUID.randomUUID();
+        Agreement agreement = sampleAgreementWithHash(dealId, 1, termsHash());
+        when(agreementRepository.findByTermsHashSha256(termsHash()))
+                .thenReturn(java.util.List.of(agreement));
+        when(dealPort.getBuyerEmail(dealId)).thenReturn("registered-buyer@example.com");
+        when(dealPort.getSellerEmail(dealId)).thenReturn("registered-seller@example.com");
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-SYNTH-XWZE-DK3Y-0001")).thenReturn(Optional.empty());
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-EMAIL-MISMATCH", "INVOICING.INVOICE.CREATED", "INV2-SYNTH-XWZE-DK3Y-0001",
+                objectMapper.readTree(invoicePayload(termsHash())).path("resource").path("invoice"),
+                invoicePayload(termsHash()));
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.PROCESSED);
+        verify(invoiceRepository).save(any(InvoiceEntity.class));
+    }
+
+    @Test
+    void invoiceCreatedRefusesToAutoLinkWhenMultipleCandidatesExist() throws Exception {
+        UUID dealId = UUID.randomUUID();
+        Agreement agreement = sampleAgreementWithHash(dealId, 1, termsHash());
+        when(agreementRepository.findByTermsHashSha256(termsHash()))
+                .thenReturn(java.util.List.of(agreement));
+        when(dealPort.getBuyerEmail(dealId)).thenReturn("registered-buyer@example.com");
+        when(dealPort.getSellerEmail(dealId)).thenReturn("registered-seller@example.com");
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-SYNTH-XWZE-DK3Y-0001")).thenReturn(Optional.empty());
+
+        String otherPayload = """
+                {"id":"WH-SYNTH-CREATED-2","event_type":"INVOICING.INVOICE.CREATED",
+                 "resource":{"invoice":{
+                   "id":"INV2-OTHER-AAAA-BBBB-CCCC","status":"DRAFT",
+                   "detail":{"invoice_number":"0007","note":"termsHashSha256: %s | Deliverables: Synthetic deliverable"},
+                   "amount":{"currency_code":"USD","value":"980.00"}
+                 }}}
+                """.formatted(termsHash());
+        when(eventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED"))
+                .thenReturn(java.util.List.of(
+                        new com.payagent.settlement.persistence.PayPalEventEntity(
+                                "EVT-A", "INVOICING.INVOICE.CREATED", "INV2-SYNTH-XWZE-DK3Y-0001",
+                                invoicePayload(termsHash())),
+                        new com.payagent.settlement.persistence.PayPalEventEntity(
+                                "EVT-B", "INVOICING.INVOICE.CREATED", "INV2-OTHER-AAAA-BBBB-CCCC",
+                                otherPayload)));
+
+        var result = reconciliationService.processWebhookEvent(
+                "EVT-AMBIG-1", "INVOICING.INVOICE.CREATED", "INV2-SYNTH-XWZE-DK3Y-0001",
+                objectMapper.readTree(invoicePayload(termsHash())).path("resource").path("invoice"),
+                invoicePayload(termsHash()));
+
+        assertThat(result).isEqualTo(WebhookProcessingResult.ACKNOWLEDGED_NO_BUSINESS_MUTATION);
+        verify(invoiceRepository, never()).save(any());
+        verify(auditEventPort).recordEvent(eq(dealId), eq("INVOICE_LINK_AMBIGUOUS"), any());
+    }
+
+    @Test
     void invoiceCreatedWithWrongHashIsIgnored() throws Exception {
         when(agreementRepository.findByTermsHashSha256(anyString()))
                 .thenReturn(java.util.List.of());

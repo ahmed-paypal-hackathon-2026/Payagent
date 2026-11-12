@@ -531,6 +531,153 @@ class SettlementServiceTest {
         assertThat(state.paypalAuthorizationId()).isEqualTo("AUTH-READ");
     }
 
+    private String createdEventPayload(String invoiceId, String invoiceNumber) {
+        return """
+                {"id":"EVT-%s","event_type":"INVOICING.INVOICE.CREATED",
+                 "resource":{"invoice":{
+                   "id":"%s","status":"DRAFT",
+                   "detail":{"invoice_number":"%s","note":"termsHashSha256: %s | Deliverables: Synthetic deliverable"},
+                   "primary_recipients":[{"billing_info":{"email_address":"sandbox-buyer@business.example.com"}}],
+                   "invoicer":{"email_address":"sandbox-merchant@gmail.com"},
+                   "amount":{"currency_code":"USD","value":"980.00"}
+                 }}}
+                """.formatted(invoiceId, invoiceId, invoiceNumber, termsHash);
+    }
+
+    private AgreementSnapshotDTO agreedAgreement() {
+        StructuredTermsDTO terms = new StructuredTermsDTO(
+                "Autonomous Bot Development",
+                List.of("Module A", "Module B"),
+                98000L,
+                "USD",
+                7,
+                2,
+                "Passes test suite"
+        );
+        return new AgreementSnapshotDTO(
+                UUID.randomUUID().toString(),
+                dealId.toString(),
+                1,
+                terms,
+                termsHash,
+                "2026-10-25T12:00:00Z",
+                "2026-10-25T12:05:00Z"
+        );
+    }
+
+    @Test
+    void initiateRecoversSingleVerifiedCandidateWithoutCreatingNewInvoice() {
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.AGREED);
+        when(dealPort.getAgreedAgreement(dealId)).thenReturn(agreedAgreement());
+        when(payPalEventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED"))
+                .thenReturn(List.of(new com.payagent.settlement.persistence.PayPalEventEntity(
+                        "EVT-F7EZ", "INVOICING.INVOICE.CREATED", "INV2-F7EZ-LMCU-XWZE-DK3Y",
+                        createdEventPayload("INV2-F7EZ-LMCU-XWZE-DK3Y", "0006"))));
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+
+        PayPalOrderResponse orderResp = new PayPalOrderResponse("ORD-REC-1", "CREATED", "AUTHORIZE", null, null);
+        when(orderService.createOrder(any(CreateOrderCommand.class), anyString())).thenReturn(orderResp);
+
+        SettlementStateDTO state = settlementService.initiateSettlement(dealId, "recover-key", buyerEmail);
+
+        verify(invoiceService, never()).createDraftInvoice(any(CreateInvoiceCommand.class), anyString());
+        // Two saves are expected: (1) recovery links the row, (2) the DRAFT->SENT transition persists the new status.
+        verify(invoiceRepository, times(2)).save(any(InvoiceEntity.class));
+        verify(invoiceService).sendInvoice(eq("INV2-F7EZ-LMCU-XWZE-DK3Y"), anyString());
+        assertThat(state.invoiceStatus()).isNotNull();
+    }
+
+    @Test
+    void initiateRefusesToLinkOrCreateWhenMultipleCandidatesMatch() {
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.AGREED);
+        when(dealPort.getAgreedAgreement(dealId)).thenReturn(agreedAgreement());
+        when(payPalEventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED"))
+                .thenReturn(List.of(
+                        new com.payagent.settlement.persistence.PayPalEventEntity(
+                                "EVT-F7EZ", "INVOICING.INVOICE.CREATED", "INV2-F7EZ-LMCU-XWZE-DK3Y",
+                                createdEventPayload("INV2-F7EZ-LMCU-XWZE-DK3Y", "0006")),
+                        new com.payagent.settlement.persistence.PayPalEventEntity(
+                                "EVT-F5XE", "INVOICING.INVOICE.CREATED", "INV2-F5XE-MSYY-7DR2-L9WA",
+                                createdEventPayload("INV2-F5XE-MSYY-7DR2-L9WA", "0009"))));
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> settlementService.initiateSettlement(dealId, "ambiguous-key", buyerEmail))
+                .isInstanceOf(SettlementConflictException.class)
+                .hasMessageContaining("INV2-F7EZ-LMCU-XWZE-DK3Y")
+                .hasMessageContaining("INV2-F5XE-MSYY-7DR2-L9WA");
+
+        verify(invoiceService, never()).createDraftInvoice(any(CreateInvoiceCommand.class), anyString());
+        verify(invoiceRepository, never()).save(any(InvoiceEntity.class));
+    }
+
+    @Test
+    void explicitLinkPersistsVerifiedCandidateWithoutCallingPayPal() {
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.AGREED);
+        when(dealPort.getAgreedAgreement(dealId)).thenReturn(agreedAgreement());
+        when(payPalEventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED"))
+                .thenReturn(List.of(
+                        new com.payagent.settlement.persistence.PayPalEventEntity(
+                                "EVT-F7EZ", "INVOICING.INVOICE.CREATED", "INV2-F7EZ-LMCU-XWZE-DK3Y",
+                                createdEventPayload("INV2-F7EZ-LMCU-XWZE-DK3Y", "0006")),
+                        new com.payagent.settlement.persistence.PayPalEventEntity(
+                                "EVT-F5XE", "INVOICING.INVOICE.CREATED", "INV2-F5XE-MSYY-7DR2-L9WA",
+                                createdEventPayload("INV2-F5XE-MSYY-7DR2-L9WA", "0009"))));
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-F5XE-MSYY-7DR2-L9WA")).thenReturn(Optional.empty());
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-F7EZ-LMCU-XWZE-DK3Y")).thenReturn(Optional.empty());
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+
+        SettlementStateDTO state = settlementService.linkExistingInvoiceExplicitly(dealId, "INV2-F5XE-MSYY-7DR2-L9WA", sellerEmail);
+
+        verify(invoiceRepository).save(any(InvoiceEntity.class));
+        verify(invoiceService, never()).createDraftInvoice(any(CreateInvoiceCommand.class), anyString());
+        verify(invoiceService, never()).sendInvoice(anyString(), anyString());
+        assertThat(state.paypalInvoiceId()).isEqualTo("INV2-F5XE-MSYY-7DR2-L9WA");
+    }
+
+    @Test
+    void explicitLinkIsIdempotentWhenInvoiceAlreadyLinkedToSameDeal() {
+        InvoiceEntity already = new InvoiceEntity(
+                UUID.randomUUID(), dealId, 1, InvoiceLifecycleStatus.SENT,
+                "INV2-F7EZ-LMCU-XWZE-DK3Y", "0006", "url", 98000L, "USD");
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-F7EZ-LMCU-XWZE-DK3Y")).thenReturn(Optional.of(already));
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.SETTLEMENT_PENDING);
+        when(paymentRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+
+        SettlementStateDTO state = settlementService.linkExistingInvoiceExplicitly(dealId, "INV2-F7EZ-LMCU-XWZE-DK3Y", sellerEmail);
+
+        verify(invoiceRepository, never()).save(any(InvoiceEntity.class));
+        assertThat(state.paypalInvoiceId()).isEqualTo("INV2-F7EZ-LMCU-XWZE-DK3Y");
+    }
+
+    @Test
+    void explicitLinkRejectsInvoiceIdThatIsNotAStoredCandidate() {
+        when(dealPort.getDealStatus(dealId)).thenReturn(DealStatus.AGREED);
+        when(dealPort.getAgreedAgreement(dealId)).thenReturn(agreedAgreement());
+        when(payPalEventRepository.findByEventTypeOrderByReceivedAtAsc("INVOICING.INVOICE.CREATED"))
+                .thenReturn(List.of(new com.payagent.settlement.persistence.PayPalEventEntity(
+                        "EVT-F7EZ", "INVOICING.INVOICE.CREATED", "INV2-F7EZ-LMCU-XWZE-DK3Y",
+                        createdEventPayload("INV2-F7EZ-LMCU-XWZE-DK3Y", "0006"))));
+        when(invoiceRepository.findByPaypalInvoiceId("INV2-INVENTED")).thenReturn(Optional.empty());
+        when(invoiceRepository.findFirstByDealIdOrderByUpdatedAtDesc(dealId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> settlementService.linkExistingInvoiceExplicitly(dealId, "INV2-INVENTED", sellerEmail))
+                .isInstanceOf(SettlementConflictException.class)
+                .hasMessageContaining("INV2-INVENTED");
+        verify(invoiceRepository, never()).save(any(InvoiceEntity.class));
+    }
+
+    @Test
+    void explicitLinkIsSellerScoped() {
+        doThrow(new SettlementForbiddenException("Caller buyer@example.com is not the authorized SELLER for deal " + dealId))
+                .when(dealPort).assertSeller(dealId, buyerEmail);
+
+        assertThatThrownBy(() -> settlementService.linkExistingInvoiceExplicitly(dealId, "INV2-F7EZ-LMCU-XWZE-DK3Y", buyerEmail))
+                .isInstanceOf(SettlementForbiddenException.class);
+        verify(invoiceRepository, never()).save(any(InvoiceEntity.class));
+    }
+
     @Test
     void acceptDeliverablesBlocksWhenCaptureAttemptIsAlreadyOpen() {
         PaymentEntity payment = new PaymentEntity(

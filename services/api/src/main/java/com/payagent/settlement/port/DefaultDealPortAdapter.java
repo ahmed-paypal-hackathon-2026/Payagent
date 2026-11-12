@@ -82,6 +82,15 @@ public class DefaultDealPortAdapter implements DealPort {
     }
 
     @Override
+    public void assertSeller(UUID dealId, String callerEmail) {
+        String resolved = resolveCallerEmail(dealId, callerEmail);
+        String sellerEmail = getSellerEmail(dealId);
+        if (sellerEmail == null || !resolved.equalsIgnoreCase(sellerEmail)) {
+            throw new SettlementForbiddenException("Caller " + resolved + " is not the authorized SELLER for deal " + dealId);
+        }
+    }
+
+    @Override
     public void assertParty(UUID dealId, String callerEmail) {
         String resolved = resolveCallerEmail(dealId, callerEmail);
         String buyerEmail = getBuyerEmail(dealId);

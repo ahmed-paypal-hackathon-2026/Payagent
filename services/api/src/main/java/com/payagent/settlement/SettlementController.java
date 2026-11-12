@@ -2,6 +2,7 @@ package com.payagent.settlement;
 
 import com.payagent.common.contracts.SettlementStateDTO;
 import com.payagent.settlement.model.AuthorizeSettlementRequest;
+import com.payagent.settlement.model.LinkExistingInvoiceRequest;
 import com.payagent.settlement.model.VoidSettlementRequest;
 import jakarta.validation.Valid;
 import java.security.Principal;
@@ -65,6 +66,26 @@ public class SettlementController {
                 request,
                 SettlementStateDTO.class,
                 () -> ResponseEntity.ok(settlementService.authorizeSettlement(dealId, orderId, idempotencyKey, callerEmail))
+        );
+    }
+
+    @PostMapping("/link-invoice")
+    public ResponseEntity<SettlementStateDTO> linkExistingInvoice(
+            @PathVariable("id") UUID dealId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody LinkExistingInvoiceRequest request,
+            @RequestAttribute(value = "userEmail", required = false) String userEmail,
+            Principal principal) {
+        String callerEmail = resolveCallerEmail(userEmail, principal);
+        String route = "/api/v1/deals/" + dealId + "/settlement/link-invoice";
+
+        return idempotencyService.execute(
+                idempotencyKey,
+                route,
+                dealId,
+                request,
+                SettlementStateDTO.class,
+                () -> ResponseEntity.ok(settlementService.linkExistingInvoiceExplicitly(dealId, request.paypalInvoiceId(), callerEmail))
         );
     }
 
