@@ -8,10 +8,18 @@ services:
     plan: starter
     healthCheckPath: /actuator/health
     envVars:
-      - key: PAYAGENT_DB_URL
+      - key: PAYAGENT_DB_HOST
         fromDatabase:
           name: payagent-db
-          property: connectionString
+          property: host
+      - key: PAYAGENT_DB_PORT
+        fromDatabase:
+          name: payagent-db
+          property: port
+      - key: PAYAGENT_DB_NAME
+        fromDatabase:
+          name: payagent-db
+          property: database
       - key: PAYAGENT_DB_USER
         fromDatabase:
           name: payagent-db

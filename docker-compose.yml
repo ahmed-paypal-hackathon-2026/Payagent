@@ -25,7 +25,9 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PAYAGENT_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-payagent}
+      PAYAGENT_DB_HOST: postgres
+      PAYAGENT_DB_PORT: "5432"
+      PAYAGENT_DB_NAME: ${POSTGRES_DB:-payagent}
       PAYAGENT_DB_USER: ${POSTGRES_USER:-payagent}
       PAYAGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local}
       PAYAGENT_JWT_SECRET: ${PAYAGENT_JWT_SECRET:-local-dev-only-change-before-shared-demo}

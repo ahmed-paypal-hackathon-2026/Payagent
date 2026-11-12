@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.util.UUID;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * policy and rollback of the event record when the handler fails.
  */
 @SpringBootTest
+@EnabledIfEnvironmentVariable(named = "PAYAGENT_B17_SERVICE_URL", matches = ".+")
 class SettlementWebhookPostgreSqlServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();

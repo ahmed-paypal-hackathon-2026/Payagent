@@ -158,7 +158,9 @@ npm run start
 | `POSTGRES_USER` | `payagent` | — | Docker Compose |
 | `POSTGRES_PASSWORD` | `change-me-local` | — | Docker Compose |
 | `POSTGRES_PORT` | `5432` | — | Docker Compose |
-| `PAYAGENT_DB_URL` | `jdbc:postgresql://postgres:5432/payagent` | `jdbc:postgresql://localhost:5432/payagent` | Backend |
+| `PAYAGENT_DB_HOST` | `postgres` | `localhost` | Backend |
+| `PAYAGENT_DB_PORT` | `5432` | `5432` | Backend |
+| `PAYAGENT_DB_NAME` | `payagent` | `payagent` | Backend |
 | `PAYAGENT_DB_USER` | `payagent` | `payagent` | Backend |
 | `PAYAGENT_DB_PASSWORD` | `change-me-local` | `change-me-local` | Backend |
 | `PAYAGENT_JWT_SECRET` | `local-dev-only-change-before-shared-demo` | *(must set)* | Backend |
