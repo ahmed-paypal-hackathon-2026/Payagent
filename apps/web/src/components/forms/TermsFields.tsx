@@ -60,8 +60,9 @@ export function TermsFields({
         hint="Enter a decimal amount. The API receives integer minor units."
         error={errors.price}
         required
+        className="sm:col-span-2"
       >
-        <div className="flex gap-2">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
           <Input
             id={`${idPrefix}-price`}
             inputMode="decimal"
@@ -70,19 +71,22 @@ export function TermsFields({
             disabled={disabled}
             aria-invalid={Boolean(errors.price)}
             placeholder="900.00"
+            className="min-w-[12rem] flex-1 sm:min-w-0"
           />
           {showCurrency ? (
-            <Select
-              aria-label="Currency"
-              value={draft.currency}
-              onChange={(event) => set({ currency: event.target.value })}
-              disabled={disabled}
-              className="w-24 shrink-0"
-            >
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-            </Select>
+            <div className="w-full shrink-0 sm:w-28">
+              <Select
+                aria-label="Currency"
+                value={draft.currency}
+                onChange={(event) => set({ currency: event.target.value })}
+                disabled={disabled}
+                className="w-full"
+              >
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+              </Select>
+            </div>
           ) : null}
         </div>
       </Field>
